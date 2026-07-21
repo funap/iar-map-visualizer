@@ -46,14 +46,15 @@
                     Get Started
                 </h2>
                 <p style="color: var(--text-secondary); margin-bottom: 2rem;">
-                    Drop your IAR Embedded Workbench linker map file below. All parsing happens locally in your browser—your proprietary code files never leave your computer.
+                    Drop your IAR Embedded Workbench linker map file (<b>.map</b>) and project file (<b>.ewp</b>) below. All parsing happens locally in your browser—your proprietary code files never leave your computer.
                 </p>
                 
                 <div id="dropzone" class="dropzone">
                     <i data-lucide="upload-cloud" class="dropzone-icon"></i>
-                    <p class="dropzone-text">Drag & drop your EWARM <b>.map</b> file here</p>
-                    <p class="dropzone-subtext">or click to browse your local filesystem</p>
-                    <input type="file" id="file-input" accept=".map" style="display: none;">
+                    <p class="dropzone-text">Drag & drop your EWARM <b>.map</b> or <b>.ewp</b> files here</p>
+                    <p class="dropzone-subtext">or click to browse your local filesystem (select both .map & .ewp)</p>
+                    <input type="file" id="file-input" accept=".map,.ewp" multiple style="display: none;">
+                    <input type="file" id="ewp-file-input" accept=".ewp" style="display: none;">
                 </div>
                 
                 <div style="margin-top: 2rem; display: flex; align-items: center; justify-content: center; gap: 1rem;">
@@ -63,7 +64,7 @@
                 </div>
                 
                 <button onclick="document.getElementById('load-sample-btn').click()" class="btn btn-primary" style="margin: 1.5rem auto 0; padding: 0.75rem 2rem;">
-                    <i data-lucide="sparkles" style="width: 18px; height: 18px;"></i> Explore with Sample Map
+                    <i data-lucide="sparkles" style="width: 18px; height: 18px;"></i> Explore with Sample Project
                 </button>
             </div>
         </main>
@@ -75,8 +76,28 @@
                 <!-- Dropzone Mini-widget -->
                 <div id="dropzone-mini" class="glass-card dropzone" style="padding: 1.25rem 1rem;">
                     <i data-lucide="file-text" style="width: 24px; height: 24px; stroke: var(--color-primary-light); margin-bottom: 0.5rem;"></i>
-                    <span style="font-size: 0.85rem; font-weight: 500;">Drop another .map file</span>
-                    <span style="font-size: 0.7rem; color: var(--text-muted);">to analyze a different build</span>
+                    <span style="font-size: 0.85rem; font-weight: 500;">Drop .map or .ewp file</span>
+                    <span style="font-size: 0.7rem; color: var(--text-muted);">to update current analysis</span>
+                </div>
+
+                <!-- Loaded Files Summary Widget -->
+                <div class="glass-card" style="padding: 1.15rem;">
+                    <h2 style="font-size: 0.95rem; margin-bottom: 0.85rem;">
+                        <i data-lucide="files" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i> Loaded Workspace
+                    </h2>
+                    <div style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.8rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                            <span style="color: var(--text-secondary);">Map File:</span>
+                            <span id="map-file-badge" class="file-badge">None</span>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                            <span style="color: var(--text-secondary);">EWP Project:</span>
+                            <span id="ewp-file-badge" class="file-badge">None</span>
+                        </div>
+                        <button id="upload-ewp-btn" class="btn btn-sm" style="margin-top: 0.25rem; font-size: 0.75rem; padding: 0.4rem 0.6rem; justify-content: center;">
+                            <i data-lucide="folder-plus" style="width: 14px; height: 14px;"></i> Load .ewp File
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Flash Budget Module -->
@@ -117,10 +138,11 @@
                         <i data-lucide="help-circle" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i> Navigation Tips
                     </h2>
                     <ul style="font-size: 0.8rem; color: var(--text-secondary); padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem;">
-                        <li><b>Click</b> on a group node to zoom into its object module child nodes.</li>
+                        <li>Use <b>EWARM Folders</b> mode to group modules by your IDE virtual project folders.</li>
+                        <li><b>Click</b> on a group or folder node to drill down into child nodes.</li>
                         <li><b>Hover</b> over elements to see detailed code, read-only data, and RAM breakdowns.</li>
-                        <li>Use the breadcrumb bar at the bottom of the chart to navigate back to the top level.</li>
-                        <li><b>Search</b> in the table below to filter objects, and click a row to view it in the treemap.</li>
+                        <li>Use the breadcrumb bar at the bottom of the chart to navigate back up.</li>
+                        <li><b>Search</b> in the table below to filter objects, and click a row to locate it.</li>
                     </ul>
                 </div>
             </section>
@@ -157,15 +179,27 @@
                 <!-- Treemap View Panel -->
                 <div class="glass-card chart-card animate-fade-in">
                     <div class="chart-header">
-                        <h2>
-                            <i data-lucide="layout-grid" style="width: 18px; height: 18px; stroke: var(--color-primary-light);"></i> ROM Treemap Visualizer
-                        </h2>
+                        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                            <h2>
+                                <i data-lucide="layout-grid" style="width: 18px; height: 18px; stroke: var(--color-primary-light);"></i> ROM Treemap Visualizer
+                            </h2>
+                            <!-- Grouping Mode Switcher -->
+                            <div class="segmented-control">
+                                <button id="group-mode-library" class="segmented-btn active" title="Group by compiled library/module group">
+                                    <i data-lucide="package" style="width: 14px; height: 14px;"></i> Library / Group
+                                </button>
+                                <button id="group-mode-folder" class="segmented-btn" title="Group by EWARM project virtual folders (.ewp)">
+                                    <i data-lucide="folder-tree" style="width: 14px; height: 14px;"></i> EWARM Folders
+                                </button>
+                            </div>
+                        </div>
                         <span style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
                             <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents ROM size (ro code + ro data)
                         </span>
                     </div>
                     <div id="treemap-chart" class="chart-container"></div>
                 </div>
+
 
                 <!-- Detailed Modules Table -->
                 <div class="glass-card table-card animate-fade-in">

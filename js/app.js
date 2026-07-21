@@ -1,12 +1,16 @@
 // Application State
 let appData = null; // Parsed map data { groups, totals }
+let ewpData = null; // Parsed ewp project data { rootGroups, rootFiles, fileMap }
+let activeGroupingMode = 'library'; // 'library' | 'folder'
+let mapFileName = '';
+let ewpFileName = '';
 let activeSortColumn = 'romSize';
 let activeSortDesc = true;
 let searchQuery = '';
 let targetFlashBytes = 256 * 1024; // Default 256KB
 let chartInstance = null;
 
-// Color Palette for Libraries
+// Color Palette for Libraries and Top Folders
 const PALETTE = [
     '#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b',
     '#06b6d4', '#14b8a6', '#f43f5e', '#a855f7', '#3b82f6'
@@ -20,38 +24,82 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initDOM() {
     const dropzone = document.getElementById('dropzone');
+    const miniDropzone = document.getElementById('dropzone-mini');
     const fileInput = document.getElementById('file-input');
+    const ewpFileInput = document.getElementById('ewp-file-input');
+    const uploadEwpBtn = document.getElementById('upload-ewp-btn');
     const loadSampleBtn = document.getElementById('load-sample-btn');
     const flashBudgetInput = document.getElementById('flash-budget-input');
     const flashBudgetUnit = document.getElementById('flash-budget-unit');
     const searchInput = document.getElementById('search-input');
     
-    // File inputs
-    dropzone.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', handleFileSelect);
+    // Grouping mode buttons
+    const btnGroupLibrary = document.getElementById('group-mode-library');
+    const btnGroupFolder = document.getElementById('group-mode-folder');
     
-    // Drag & Drop
-    dropzone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropzone.classList.add('dragover');
-    });
-    
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropzone.addEventListener(eventName, () => {
-            dropzone.classList.remove('dragover');
+    if (btnGroupLibrary && btnGroupFolder) {
+        btnGroupLibrary.addEventListener('click', () => {
+            setGroupingMode('library');
         });
-    });
+        btnGroupFolder.addEventListener('click', () => {
+            if (!ewpData) {
+                alert('No .ewp file loaded yet. Please select or drag & drop an IAR project (.ewp) file.');
+                if (ewpFileInput) ewpFileInput.click();
+                return;
+            }
+            setGroupingMode('folder');
+        });
+    }
+
+    // File inputs
+    if (dropzone) dropzone.addEventListener('click', () => fileInput.click());
+    if (fileInput) fileInput.addEventListener('change', (e) => processFileList(e.target.files));
+    if (ewpFileInput) ewpFileInput.addEventListener('change', (e) => processFileList(e.target.files));
+    if (uploadEwpBtn) uploadEwpBtn.addEventListener('click', () => ewpFileInput.click());
+
+    // Drag & Drop for Main Dropzone
+    if (dropzone) {
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, () => {
+                dropzone.classList.remove('dragover');
+            });
+        });
+        
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                processFileList(e.dataTransfer.files);
+            }
+        });
+    }
+
+    // Drag & Drop for Mini Dropzone
+    if (miniDropzone) {
+        miniDropzone.addEventListener('click', () => fileInput.click());
+        miniDropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            miniDropzone.classList.add('dragover');
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            miniDropzone.addEventListener(eventName, () => {
+                miniDropzone.classList.remove('dragover');
+            });
+        });
+        miniDropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                processFileList(e.dataTransfer.files);
+            }
+        });
+    }
     
-    dropzone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            processFile(files[0]);
-        }
-    });
-    
-    // Load sample map data
-    loadSampleBtn.addEventListener('click', loadSampleData);
+    // Load sample project data
+    if (loadSampleBtn) loadSampleBtn.addEventListener('click', loadSampleData);
     
     // Flash Budget Configurator
     const updateBudget = () => {
@@ -62,14 +110,16 @@ function initDOM() {
         updateBudgetMeter();
     };
     
-    flashBudgetInput.addEventListener('input', updateBudget);
-    flashBudgetUnit.addEventListener('change', updateBudget);
+    if (flashBudgetInput) flashBudgetInput.addEventListener('input', updateBudget);
+    if (flashBudgetUnit) flashBudgetUnit.addEventListener('change', updateBudget);
     
     // Search Filter
-    searchInput.addEventListener('input', (e) => {
-        searchQuery = e.target.value.toLowerCase();
-        renderTable();
-    });
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            searchQuery = e.target.value.toLowerCase();
+            renderTable();
+        });
+    }
     
     // Table Headers Sorting
     document.querySelectorAll('th[data-sort]').forEach(th => {
@@ -96,7 +146,9 @@ function initDOM() {
 
 function initChart() {
     const chartDom = document.getElementById('treemap-chart');
-    chartInstance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+    if (chartDom) {
+        chartInstance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+    }
 }
 
 // Format bytes to human readable format
@@ -110,31 +162,62 @@ function formatBytes(bytes) {
 
 // Format number with commas
 function formatNumber(num) {
-    return num.toLocaleString();
+    return (num || 0).toLocaleString();
 }
 
-function handleFileSelect(e) {
-    const files = e.target.files;
-    if (files.length > 0) {
-        processFile(files[0]);
+function processFileList(files) {
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    
+    const ewpFiles = fileArray.filter(f => f.name.toLowerCase().endsWith('.ewp'));
+    const mapFiles = fileArray.filter(f => !f.name.toLowerCase().endsWith('.ewp'));
+
+    let pendingEwp = ewpFiles.length > 0 ? ewpFiles[0] : null;
+    let pendingMap = mapFiles.length > 0 ? mapFiles[0] : null;
+
+    if (pendingEwp) {
+        readEwpFile(pendingEwp, () => {
+            if (pendingMap) {
+                readMapFile(pendingMap);
+            } else if (appData) {
+                setGroupingMode('folder');
+            }
+        });
+    } else if (pendingMap) {
+        readMapFile(pendingMap);
     }
 }
 
-function processFile(file) {
+function readEwpFile(file, callback) {
     const reader = new FileReader();
     reader.onload = (e) => {
-        const text = e.target.result;
         try {
-            const parsed = parseMapFile(text);
-            
-            // Validate if we actually parsed anything
+            const parsed = parseEwpFile(e.target.result);
+            ewpData = parsed;
+            ewpFileName = file.name;
+            updateFileBadges();
+            if (callback) callback();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to parse .ewp file: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
+function readMapFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const parsed = parseMapFile(e.target.result);
             const groupCount = Object.keys(parsed.groups).length;
             if (groupCount === 0) {
-                alert('Could not find MODULE SUMMARY section or parse data in this map file. Please check EWARM settings and ensure "linker map file" was generated.');
+                alert('Could not find MODULE SUMMARY section or parse data in this map file.');
                 return;
             }
-            
             appData = parsed;
+            mapFileName = file.name;
+            updateFileBadges();
             onDataLoaded();
         } catch (err) {
             console.error(err);
@@ -144,7 +227,40 @@ function processFile(file) {
     reader.readAsText(file);
 }
 
-// Fallback sample map data in case fetch fails (e.g. running on file:// protocol)
+function setGroupingMode(mode) {
+    activeGroupingMode = mode;
+    const btnLib = document.getElementById('group-mode-library');
+    const btnFold = document.getElementById('group-mode-folder');
+    if (btnLib && btnFold) {
+        btnLib.classList.toggle('active', mode === 'library');
+        btnFold.classList.toggle('active', mode === 'folder');
+    }
+    const colHeader = document.querySelector('th[data-sort="group"]');
+    if (colHeader) {
+        colHeader.innerText = mode === 'folder' ? 'EWARM Folder' : 'Library/Group';
+    }
+    if (appData) {
+        drawTreemap();
+        renderTable();
+    }
+}
+
+function updateFileBadges() {
+    const mapBadge = document.getElementById('map-file-badge');
+    const ewpBadge = document.getElementById('ewp-file-badge');
+    if (mapBadge) {
+        mapBadge.innerText = mapFileName ? mapFileName : 'None';
+        mapBadge.className = mapFileName ? 'file-badge loaded' : 'file-badge';
+        mapBadge.title = mapFileName;
+    }
+    if (ewpBadge) {
+        ewpBadge.innerText = ewpFileName ? ewpFileName : 'None';
+        ewpBadge.className = ewpFileName ? 'file-badge loaded' : 'file-badge';
+        ewpBadge.title = ewpFileName;
+    }
+}
+
+// Built-in fallback sample data
 const SAMPLE_MAP_FALLBACK = `###############################################################################
 #
 # IAR ELF Linker V8.50.1.245/W32 for ARM
@@ -202,21 +318,75 @@ Total:                            0        476          0
 
 Grand Total:                 30,302     18,568        348`;
 
-// Fetch and load sample.map
+const SAMPLE_EWP_FALLBACK = `<?xml version="1.0" encoding="iso-8859-1"?>
+<project>
+  <fileVersion>3</fileVersion>
+  <configuration>
+    <name>Debug</name>
+  </configuration>
+  <group>
+    <name>Application</name>
+    <group>
+      <name>UI</name>
+      <file>
+        <name>$PROJ_DIR$\\display.c</name>
+      </file>
+    </group>
+    <file>
+      <name>$PROJ_DIR$\\main.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\\utils.c</name>
+    </file>
+  </group>
+  <group>
+    <name>Drivers</name>
+    <file>
+      <name>$PROJ_DIR$\\motor.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\\sensor.c</name>
+    </file>
+  </group>
+  <group>
+    <name>Connectivity</name>
+    <file>
+      <name>$PROJ_DIR$\\wifi.c</name>
+    </file>
+  </group>
+</project>`;
+
+// Fetch and load sample data (.map and .ewp)
 async function loadSampleData() {
     try {
-        const response = await fetch('./sample.map');
-        if (!response.ok) {
-            throw new Error('Fetch status not OK');
-        }
-        const text = await response.text();
-        const parsed = parseMapFile(text);
-        appData = parsed;
+        let mapText = SAMPLE_MAP_FALLBACK;
+        let ewpText = SAMPLE_EWP_FALLBACK;
+
+        try {
+            const mapRes = await fetch('./sample.map');
+            if (mapRes.ok) mapText = await mapRes.text();
+        } catch(e) {}
+
+        try {
+            const ewpRes = await fetch('./sample.ewp');
+            if (ewpRes.ok) ewpText = await ewpRes.text();
+        } catch(e) {}
+
+        appData = parseMapFile(mapText);
+        ewpData = parseEwpFile(ewpText);
+        mapFileName = 'sample.map';
+        ewpFileName = 'sample.ewp';
+        updateFileBadges();
+        setGroupingMode('folder');
         onDataLoaded();
     } catch (err) {
         console.warn('Fetch failed, using built-in fallback sample data:', err);
-        const parsed = parseMapFile(SAMPLE_MAP_FALLBACK);
-        appData = parsed;
+        appData = parseMapFile(SAMPLE_MAP_FALLBACK);
+        ewpData = parseEwpFile(SAMPLE_EWP_FALLBACK);
+        mapFileName = 'sample.map';
+        ewpFileName = 'sample.ewp';
+        updateFileBadges();
+        setGroupingMode('folder');
         onDataLoaded();
     }
 }
@@ -226,27 +396,18 @@ function onDataLoaded() {
     document.getElementById('welcome-card').classList.add('hidden');
     document.getElementById('main-dashboard').classList.remove('hidden');
     
-    // Force resize after the browser completes the layout and rendering cycle
     setTimeout(() => {
         if (chartInstance) {
             chartInstance.resize();
         }
     }, 50);
     
-    // Update KPI panels
     updateKPIs();
-    
-    // Update Budget meter
     updateBudgetMeter();
-    
-    // Build and Draw Treemap
     drawTreemap();
-    
-    // Sort columns and draw table
     updateSortHeaders();
     renderTable();
     
-    // Re-trigger animations
     const panels = document.querySelectorAll('.animate-fade-in');
     panels.forEach(p => {
         p.style.animation = 'none';
@@ -256,6 +417,7 @@ function onDataLoaded() {
 }
 
 function updateKPIs() {
+    if (!appData) return;
     const romSize = appData.totals.romSize;
     const roCode = appData.totals.roCode;
     const roData = appData.totals.roData;
@@ -283,14 +445,14 @@ function updateBudgetMeter() {
     const percent = Math.min((romSize / targetFlashBytes) * 100, 100);
     
     const fill = document.getElementById('budget-fill');
-    fill.style.width = `${percent}%`;
-    
-    // Update colors based on occupancy threshold
-    fill.className = 'budget-bar-fill';
-    if (percent > 90) {
-        fill.classList.add('danger');
-    } else if (percent > 75) {
-        fill.classList.add('warning');
+    if (fill) {
+        fill.style.width = `${percent}%`;
+        fill.className = 'budget-bar-fill';
+        if (percent > 90) {
+            fill.classList.add('danger');
+        } else if (percent > 75) {
+            fill.classList.add('warning');
+        }
     }
     
     document.getElementById('budget-percent').innerText = `${((romSize / targetFlashBytes) * 100).toFixed(1)}%`;
@@ -299,21 +461,29 @@ function updateBudgetMeter() {
 
 // Prepare hierarchical ECharts structure
 function getChartData() {
+    if (!appData) return [];
+
+    if (activeGroupingMode === 'folder' && ewpData) {
+        const treeNodes = buildEwpFolderTree(appData, ewpData);
+        treeNodes.forEach((node, idx) => {
+            node.itemStyle = {
+                color: PALETTE[idx % PALETTE.length]
+            };
+        });
+        return treeNodes;
+    }
+    
     const romSizeTotal = appData.totals.romSize;
     const chartNodes = [];
-    
     let colorIndex = 0;
     
     for (const groupName in appData.groups) {
         const groupObj = appData.groups[groupName];
-        
         let groupRomSum = 0;
         const children = [];
         
         groupObj.modules.forEach(m => {
             groupRomSum += m.romSize;
-            
-            // Leaf node format
             children.push({
                 name: m.name,
                 value: m.romSize,
@@ -322,14 +492,13 @@ function getChartData() {
                 rwData: m.rwData,
                 romSize: m.romSize,
                 romPercentage: romSizeTotal > 0 ? (m.romSize / romSizeTotal) * 100 : 0,
-                group: groupName
+                group: groupName,
+                folderPath: `Group: ${groupName}`
             });
         });
         
-        // Skip groups that don't consume ROM space
         if (groupRomSum === 0) continue;
         
-        // Parent Library Node format
         const color = PALETTE[colorIndex % PALETTE.length];
         colorIndex++;
         
@@ -348,6 +517,7 @@ function getChartData() {
 }
 
 function drawTreemap() {
+    if (!chartInstance) return;
     const data = getChartData();
     
     const option = {
@@ -358,16 +528,17 @@ function drawTreemap() {
                 const nodeData = info.data;
                 if (!nodeData) return info.name;
                 
-                const percentText = nodeData.romPercentage.toFixed(2);
+                const percentText = (nodeData.romPercentage || 0).toFixed(2);
                 
-                // If it is a leaf (object module file)
                 if (nodeData.roCode !== undefined) {
+                    const groupLabel = activeGroupingMode === 'folder' ? 'EWARM Folder:' : 'Group/Library:';
+                    const groupVal = nodeData.folderPath || nodeData.group || 'Unknown';
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
                             <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Group:</span>
-                                <span style="font-weight: 500; color: #fff;">${nodeData.group}</span>
+                                <span style="color: #94a3b8;">${groupLabel}</span>
+                                <span style="font-weight: 500; color: #fff;">${groupVal}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                 <span style="color: #94a3b8;">Total ROM:</span>
@@ -392,16 +563,16 @@ function drawTreemap() {
                         </div>
                     `;
                 } else {
-                    // Parent library node
+                    const catLabel = activeGroupingMode === 'folder' ? 'Folder:' : 'Group:';
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
-                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">Group: ${nodeData.name}</div>
+                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${nodeData.name}</div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                 <span style="color: #94a3b8;">Total ROM:</span>
                                 <span style="font-weight: 600; color: #a78bfa;">${formatBytes(nodeData.value)}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Modules:</span>
+                                <span style="color: #94a3b8;">Items:</span>
                                 <span style="font-weight: 500; color: #fff;">${nodeData.children ? nodeData.children.length : 0}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
@@ -426,7 +597,7 @@ function drawTreemap() {
             top: 0,
             bottom: 36,
             data: data,
-            leafDepth: 1, // Drill down support (click to inspect individual .o)
+            leafDepth: 1,
             roam: 'moveAndZoom',
             nodeClick: 'zoomToNode',
             breadcrumb: {
@@ -459,6 +630,14 @@ function drawTreemap() {
                         borderWidth: 2,
                         gapWidth: 2
                     }
+                },
+                {
+                    colorSaturation: [0.3, 0.5],
+                    itemStyle: {
+                        borderColor: '#1e293b',
+                        borderWidth: 1,
+                        gapWidth: 1
+                    }
                 }
             ],
             label: {
@@ -474,18 +653,34 @@ function drawTreemap() {
         }]
     };
     
-    chartInstance.setOption(option);
+    chartInstance.setOption(option, true);
 }
 
-// Flat list of modules for sorting and rendering in the table
+// Flat list of modules for sorting and rendering in table
 function getFlatModules() {
+    if (!appData) return [];
     const list = [];
     const romSizeTotal = appData.totals.romSize;
+    const fileMap = ewpData ? ewpData.fileMap : null;
     
     for (const groupName in appData.groups) {
         appData.groups[groupName].modules.forEach(m => {
+            const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
+            let folderPath = "";
+            if (fileMap && fileMap.has(stem)) {
+                folderPath = fileMap.get(stem)[0];
+            } else {
+                if (m.group && m.group !== "Obj" && m.group !== "Unknown Group") {
+                    folderPath = `Libraries & System/${m.group}`;
+                } else {
+                    folderPath = "Unassigned Modules";
+                }
+            }
+            
             list.push({
                 ...m,
+                folderPath: folderPath,
+                displayGroup: activeGroupingMode === 'folder' ? folderPath : m.group,
                 romPercentage: romSizeTotal > 0 ? (m.romSize / romSizeTotal) * 100 : 0
             });
         });
@@ -511,6 +706,7 @@ function renderTable() {
     if (!appData) return;
     
     const tbody = document.getElementById('table-body');
+    if (!tbody) return;
     tbody.innerHTML = '';
     
     let modules = getFlatModules();
@@ -519,19 +715,19 @@ function renderTable() {
     if (searchQuery) {
         modules = modules.filter(m => 
             m.name.toLowerCase().includes(searchQuery) || 
-            m.group.toLowerCase().includes(searchQuery)
+            m.group.toLowerCase().includes(searchQuery) ||
+            m.folderPath.toLowerCase().includes(searchQuery)
         );
     }
     
     // Apply sorting
     modules.sort((a, b) => {
-        let valA = a[activeSortColumn];
-        let valB = b[activeSortColumn];
+        let valA = activeSortColumn === 'group' ? a.displayGroup : a[activeSortColumn];
+        let valB = activeSortColumn === 'group' ? b.displayGroup : b[activeSortColumn];
         
-        // Handle string sorting (case insensitive)
         if (typeof valA === 'string') {
             valA = valA.toLowerCase();
-            valB = valB.toLowerCase();
+            valB = (valB || '').toLowerCase();
         }
         
         if (valA < valB) return activeSortDesc ? 1 : -1;
@@ -542,14 +738,14 @@ function renderTable() {
     // Render rows
     modules.forEach(m => {
         const tr = document.createElement('tr');
+        const badgeText = m.displayGroup;
         
-        // Zoom to module when row is clicked
         tr.addEventListener('click', () => {
-            zoomToModuleInChart(m.group, m.name);
+            zoomToModuleInChart(m.group, m.folderPath, m.name);
         });
         
         tr.innerHTML = `
-            <td><span class="badge badge-library">${m.group}</span></td>
+            <td><span class="badge badge-library" title="${badgeText}">${badgeText}</span></td>
             <td class="col-mono" style="font-weight: 500;">${m.name}</td>
             <td class="col-mono" align="right">${formatNumber(m.roCode)}</td>
             <td class="col-mono" align="right">${formatNumber(m.roData)}</td>
@@ -562,18 +758,19 @@ function renderTable() {
     });
 }
 
-// Zoom treemap programmatically to a specific library or module
-function zoomToModuleInChart(groupName, moduleName) {
+// Zoom treemap programmatically to a specific library or folder
+function zoomToModuleInChart(groupName, folderPath, moduleName) {
     if (!chartInstance) return;
     
-    // ECharts treemap drill-down dispatching can be done via action
-    // We can zoom to a path: [LibraryName, ModuleName]
+    let targetNodeId = groupName;
+    if (activeGroupingMode === 'folder' && folderPath) {
+        targetNodeId = folderPath.split('/')[0];
+    }
+    
     chartInstance.dispatchAction({
         type: 'treemapZoomToNode',
-        // ECharts locates nodes by their index paths or matching name path
-        targetNodeId: groupName
+        targetNodeId: targetNodeId
     });
     
-    // Scroll the chart view into focus
     document.getElementById('treemap-chart').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }

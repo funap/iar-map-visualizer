@@ -10,7 +10,8 @@
  * @returns {string}
  */
 function cleanGroupName(rawGroup) {
-    let cleaned = rawGroup.replace(/:.*$/, "").trim();
+    // Remove trailing group index suffix (e.g. ": [1]") or trailing colon
+    let cleaned = rawGroup.replace(/:\s*\[\d+\]$/, "").replace(/:$/, "").trim();
     if (!cleaned) return "Unknown Group";
     
     // Split by both Windows backslash and Unix slash
@@ -280,8 +281,230 @@ function parseMapFile(text) {
     };
 }
 
+/**
+ * Parses an IAR Embedded Workbench project (.ewp) XML file.
+ * Returns a hierarchical folder structure containing files and nested groups.
+ * @param {string} xmlText 
+ * @returns {Object} { rootGroups, rootFiles, fileMap }
+ */
+function parseEwpFile(xmlText) {
+    let xmlDoc;
+    if (typeof DOMParser !== 'undefined') {
+        const parser = new DOMParser();
+        xmlDoc = parser.parseFromString(xmlText, "text/xml");
+        const parserError = xmlDoc.querySelector("parsererror");
+        if (parserError) {
+            throw new Error("Invalid EWP file format: XML parsing failed.");
+        }
+    } else {
+        throw new Error("DOMParser is not supported in this environment.");
+    }
+
+    const fileMap = new Map(); // stem (lowercase) -> Array of folderPaths e.g. "display" -> ["Application/UI"]
+
+    function parseGroup(groupEl, parentPath) {
+        const nameEl = Array.from(groupEl.children).find(c => c.tagName.toLowerCase() === "name");
+        const groupName = nameEl ? nameEl.textContent.trim() : "Unnamed Folder";
+        const currentPath = parentPath ? `${parentPath}/${groupName}` : groupName;
+
+        const subGroups = [];
+        const files = [];
+
+        Array.from(groupEl.children).forEach(child => {
+            const tag = child.tagName.toLowerCase();
+            if (tag === "group") {
+                subGroups.push(parseGroup(child, currentPath));
+            } else if (tag === "file") {
+                const fNameEl = Array.from(child.children).find(c => c.tagName.toLowerCase() === "name");
+                if (fNameEl) {
+                    const rawPath = fNameEl.textContent.trim();
+                    const normPath = rawPath.replace(/\\/g, "/");
+                    const filename = normPath.split("/").pop() || rawPath;
+                    const stem = filename.replace(/\.[^/.]+$/, "").toLowerCase();
+
+                    const fileObj = {
+                        rawPath: rawPath,
+                        filename: filename,
+                        stem: stem,
+                        folderPath: currentPath
+                    };
+                    files.push(fileObj);
+
+                    if (!fileMap.has(stem)) {
+                        fileMap.set(stem, []);
+                    }
+                    fileMap.get(stem).push(currentPath);
+                }
+            }
+        });
+
+        return {
+            name: groupName,
+            path: currentPath,
+            groups: subGroups,
+            files: files
+        };
+    }
+
+    const projectEl = xmlDoc.querySelector("project");
+    if (!projectEl) {
+        throw new Error("Invalid EWP file: <project> element not found.");
+    }
+
+    const rootGroups = [];
+    const rootFiles = [];
+
+    Array.from(projectEl.children).forEach(child => {
+        const tag = child.tagName.toLowerCase();
+        if (tag === "group") {
+            rootGroups.push(parseGroup(child, ""));
+        } else if (tag === "file") {
+            const fNameEl = Array.from(child.children).find(c => c.tagName.toLowerCase() === "name");
+            if (fNameEl) {
+                const rawPath = fNameEl.textContent.trim();
+                const normPath = rawPath.replace(/\\/g, "/");
+                const filename = normPath.split("/").pop() || rawPath;
+                const stem = filename.replace(/\.[^/.]+$/, "").toLowerCase();
+
+                rootFiles.push({
+                    rawPath: rawPath,
+                    filename: filename,
+                    stem: stem,
+                    folderPath: "Root"
+                });
+
+                if (!fileMap.has(stem)) {
+                    fileMap.set(stem, []);
+                }
+                fileMap.get(stem).push("Root");
+            }
+        }
+    });
+
+    return {
+        rootGroups,
+        rootFiles,
+        fileMap
+    };
+}
+
+/**
+ * Constructs a hierarchical tree structure for ECharts treemap from mapped folder paths.
+ * @param {Object} parsedMapData { groups, totals }
+ * @param {Object} parsedEwpData { rootGroups, rootFiles, fileMap }
+ * @returns {Array} ECharts treemap nodes hierarchy
+ */
+function buildEwpFolderTree(parsedMapData, parsedEwpData) {
+    if (!parsedMapData || !parsedMapData.groups) return [];
+    
+    const fileMap = parsedEwpData ? parsedEwpData.fileMap : new Map();
+    
+    const treeRoot = new Map();
+
+    function getOrCreateNode(pathParts) {
+        let currentLevel = treeRoot;
+        let fullPath = "";
+        let currentNode = null;
+
+        for (let i = 0; i < pathParts.length; i++) {
+            const part = pathParts[i];
+            fullPath = fullPath ? `${fullPath}/${part}` : part;
+
+            if (!currentLevel.has(part)) {
+                const newNode = {
+                    name: part,
+                    fullPath: fullPath,
+                    childrenMap: new Map(),
+                    modules: []
+                };
+                currentLevel.set(part, newNode);
+            }
+            currentNode = currentLevel.get(part);
+            currentLevel = currentNode.childrenMap;
+        }
+
+        return currentNode;
+    }
+
+    const totalRom = parsedMapData.totals.romSize;
+
+    for (const grpName in parsedMapData.groups) {
+        const groupObj = parsedMapData.groups[grpName];
+        groupObj.modules.forEach(m => {
+            const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
+            let folderPath = "";
+
+            if (fileMap && fileMap.has(stem)) {
+                folderPath = fileMap.get(stem)[0];
+            } else {
+                if (m.group && m.group !== "Obj" && m.group !== "Unknown Group") {
+                    folderPath = `Libraries & System/${m.group}`;
+                } else {
+                    folderPath = "Unassigned Modules";
+                }
+            }
+
+            const pathParts = folderPath.split("/");
+            const targetNode = getOrCreateNode(pathParts);
+            targetNode.modules.push({
+                ...m,
+                folderPath: folderPath
+            });
+        });
+    }
+
+    function convertToEchartsNodes(nodesMap) {
+        const result = [];
+
+        nodesMap.forEach(node => {
+            let nodeRomSum = 0;
+            const children = [];
+
+            if (node.childrenMap.size > 0) {
+                const childFolderNodes = convertToEchartsNodes(node.childrenMap);
+                childFolderNodes.forEach(c => {
+                    nodeRomSum += c.value;
+                    children.push(c);
+                });
+            }
+
+            node.modules.forEach(m => {
+                nodeRomSum += m.romSize;
+                children.push({
+                    name: m.name,
+                    value: m.romSize,
+                    roCode: m.roCode,
+                    roData: m.roData,
+                    rwData: m.rwData,
+                    romSize: m.romSize,
+                    romPercentage: totalRom > 0 ? (m.romSize / totalRom) * 100 : 0,
+                    group: m.group,
+                    folderPath: node.fullPath
+                });
+            });
+
+            if (nodeRomSum > 0) {
+                result.push({
+                    name: node.name,
+                    fullPath: node.fullPath,
+                    value: nodeRomSum,
+                    romPercentage: totalRom > 0 ? (nodeRomSum / totalRom) * 100 : 0,
+                    children: children
+                });
+            }
+        });
+
+        return result;
+    }
+
+    return convertToEchartsNodes(treeRoot);
+}
+
 if (typeof exports !== 'undefined') {
     exports.parseMapFile = parseMapFile;
     exports.cleanGroupName = cleanGroupName;
     exports.parseHeaders = parseHeaders;
+    exports.parseEwpFile = parseEwpFile;
+    exports.buildEwpFolderTree = buildEwpFolderTree;
 }
+
