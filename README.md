@@ -1,4 +1,4 @@
-# EWARM ROM Treemap Analyzer
+# IAR Map Visualizer
 
 A modern, web-based, client-side utility to parse IAR Systems Embedded Workbench for ARM (EWARM) `.map` files and visualize their ROM (RO Code + RO Data) footprint as an interactive, zoomable treemap by compilation modules (`.o`) and libraries (`.a`).
 
@@ -35,7 +35,7 @@ A modern, web-based, client-side utility to parse IAR Systems Embedded Workbench
 ## 📁 Directory Structure
 
 ```
-ewarm-rom-treemap/
+iar-map-visualizer/
 ├── index.html       # The main application entry UI
 ├── sample.map       # Realistic mockup EWARM map file for quick evaluation
 ├── APPV100.map      # Your custom STM32F429 project map file
@@ -50,7 +50,7 @@ ewarm-rom-treemap/
 
 ## 🚀 How to Run
 
-1. Open [index.html](file:///Users/af/workspace/ewarm-rom-treemap/index.html) in your favorite modern web browser.
+1. Open [index.html](file:///Users/af/workspace/iar-map-visualizer/index.html) in your favorite modern web browser.
 2. Click **"Load Mock Sample"** (or **"Explore with Sample Map"**) to inspect the bundled sample data.
 3. Drag and drop any of your local EWARM `.map` files into the designated zone to analyze your own builds.
 

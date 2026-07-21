@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IAR Map Visualizer</title>
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="A modern client-side ROM/Flash memory treemap visualizer for IAR Embedded Workbench for ARM (EWARM) linker map files. Analyse memory consumption of object files and libraries.">
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+    <!-- CSS Style -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header Section -->
+        <header class="glass-card animate-fade-in" style="border-radius: 16px;">
+            <div class="header-info">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="background: var(--gradient-accent); padding: 0.5rem; border-radius: 8px; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-glow);">
+                        <i data-lucide="cpu" style="width: 24px; height: 24px; stroke: #fff;"></i>
+                    </div>
+                    <div>
+                        <h1 style="font-family: 'Outfit', sans-serif;">IAR Map Visualizer</h1>
+                        <p>Visualize ROM/Flash footprint of object modules & libraries</p>
+                    </div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="load-sample-btn" class="btn">
+                    <i data-lucide="play" style="width: 16px; height: 16px;"></i> Load Mock Sample
+                </button>
+            </div>
+        </header>
+
+        <!-- Initial Welcome/Drop Area -->
+        <main id="welcome-card" class="glass-card animate-fade-in" style="padding: 3rem 2rem; border-radius: 16px; margin-top: 1rem;">
+            <div style="max-width: 600px; margin: 0 auto; text-align: center;">
+                <h2 style="font-size: 1.75rem; font-family: 'Outfit', sans-serif; justify-content: center; margin-bottom: 0.5rem;">
+                    Get Started
+                </h2>
+                <p style="color: var(--text-secondary); margin-bottom: 2rem;">
+                    Drop your IAR Embedded Workbench linker map file below. All parsing happens locally in your browser—your proprietary code files never leave your computer.
+                </p>
+                
+                <div id="dropzone" class="dropzone">
+                    <i data-lucide="upload-cloud" class="dropzone-icon"></i>
+                    <p class="dropzone-text">Drag & drop your EWARM <b>.map</b> file here</p>
+                    <p class="dropzone-subtext">or click to browse your local filesystem</p>
+                    <input type="file" id="file-input" accept=".map" style="display: none;">
+                </div>
+                
+                <div style="margin-top: 2rem; display: flex; align-items: center; justify-content: center; gap: 1rem;">
+                    <div style="height: 1px; background: rgba(255,255,255,0.08); flex: 1;"></div>
+                    <span style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Or Evaluate Instantly</span>
+                    <div style="height: 1px; background: rgba(255,255,255,0.08); flex: 1;"></div>
+                </div>
+                
+                <button onclick="document.getElementById('load-sample-btn').click()" class="btn btn-primary" style="margin: 1.5rem auto 0; padding: 0.75rem 2rem;">
+                    <i data-lucide="sparkles" style="width: 18px; height: 18px;"></i> Explore with Sample Map
+                </button>
+            </div>
+        </main>
+
+        <!-- Main Dashboard Panel (Initially Hidden) -->
+        <main id="main-dashboard" class="dashboard-grid hidden">
+            <!-- Sidebar Settings & Configs -->
+            <section class="sidebar animate-fade-in">
+                <!-- Dropzone Mini-widget -->
+                <div id="dropzone-mini" class="glass-card dropzone" style="padding: 1.25rem 1rem;">
+                    <i data-lucide="file-text" style="width: 24px; height: 24px; stroke: var(--color-primary-light); margin-bottom: 0.5rem;"></i>
+                    <span style="font-size: 0.85rem; font-weight: 500;">Drop another .map file</span>
+                    <span style="font-size: 0.7rem; color: var(--text-muted);">to analyze a different build</span>
+                </div>
+
+                <!-- Flash Budget Module -->
+                <div class="glass-card">
+                    <h2 style="font-size: 1rem; margin-bottom: 1rem;">
+                        <i data-lucide="sliders" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i> Target Flash Size
+                    </h2>
+                    
+                    <div class="settings-group">
+                        <label for="flash-budget-input" class="settings-label">Flash Memory Capacity</label>
+                        <div class="settings-input-wrapper">
+                            <input type="number" id="flash-budget-input" value="256" min="1" step="any">
+                            <select id="flash-budget-unit" style="width: 80px;">
+                                <option value="KB" selected>KB</option>
+                                <option value="MB">MB</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Progress Meter -->
+                    <div class="budget-meter">
+                        <div class="budget-text-row">
+                            <span style="color: var(--text-secondary);">ROM Utilization</span>
+                            <span id="budget-percent" style="font-weight: 600; color: var(--color-primary-light);">0%</span>
+                        </div>
+                        <div class="budget-bar-bg">
+                            <div id="budget-fill" class="budget-bar-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="budget-text-row" style="margin-top: 0.35rem;">
+                            <span id="budget-fraction" style="color: var(--text-muted); font-size: 0.75rem;">0 B / 256 KB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Usage Guidelines -->
+                <div class="glass-card" style="padding: 1.25rem;">
+                    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">
+                        <i data-lucide="help-circle" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i> Navigation Tips
+                    </h2>
+                    <ul style="font-size: 0.8rem; color: var(--text-secondary); padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <li><b>Click</b> on a group node to zoom into its object module child nodes.</li>
+                        <li><b>Hover</b> over elements to see detailed code, read-only data, and RAM breakdowns.</li>
+                        <li>Use the breadcrumb bar at the bottom of the chart to navigate back to the top level.</li>
+                        <li><b>Search</b> in the table below to filter objects, and click a row to view it in the treemap.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Dashboard Center/Right Panels -->
+            <section class="main-content">
+                <!-- KPI Dashboard Cards -->
+                <div class="kpi-container animate-fade-in">
+                    <div class="glass-card kpi-card" style="--accent-color: var(--color-primary);">
+                        <div class="kpi-label">Total ROM Footprint</div>
+                        <div id="kpi-rom" class="kpi-value">0 B</div>
+                        <div id="kpi-rom-bytes" class="kpi-sub">0 B</div>
+                    </div>
+                    
+                    <div class="glass-card kpi-card" style="--accent-color: var(--color-secondary);">
+                        <div class="kpi-label">RO Executable Code</div>
+                        <div id="kpi-code" class="kpi-value">0 B</div>
+                        <div id="kpi-code-sub" class="kpi-sub">0% of ROM</div>
+                    </div>
+
+                    <div class="glass-card kpi-card" style="--accent-color: var(--color-accent);">
+                        <div class="kpi-label">RO Constant Data</div>
+                        <div id="kpi-data" class="kpi-value">0 B</div>
+                        <div id="kpi-data-sub" class="kpi-sub">0% of ROM</div>
+                    </div>
+
+                    <div class="glass-card kpi-card" style="--accent-color: var(--color-success);">
+                        <div class="kpi-label">RAM Consumption (RW)</div>
+                        <div id="kpi-ram" class="kpi-value">0 B</div>
+                        <div id="kpi-ram-sub" class="kpi-sub">0 bytes</div>
+                    </div>
+                </div>
+
+                <!-- Treemap View Panel -->
+                <div class="glass-card chart-card animate-fade-in">
+                    <div class="chart-header">
+                        <h2>
+                            <i data-lucide="layout-grid" style="width: 18px; height: 18px; stroke: var(--color-primary-light);"></i> ROM Treemap Visualizer
+                        </h2>
+                        <span style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                            <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents ROM size (ro code + ro data)
+                        </span>
+                    </div>
+                    <div id="treemap-chart" class="chart-container"></div>
+                </div>
+
+                <!-- Detailed Modules Table -->
+                <div class="glass-card table-card animate-fade-in">
+                    <div class="table-controls">
+                        <h2>
+                            <i data-lucide="table" style="width: 18px; height: 18px; stroke: var(--color-primary-light);"></i> Object Module Details
+                        </h2>
+                        
+                        <div class="search-input-wrapper">
+                            <i data-lucide="search" class="search-icon"></i>
+                            <input type="text" id="search-input" placeholder="Search module or library...">
+                        </div>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th data-sort="group">Library/Group</th>
+                                    <th data-sort="name">Module (.o)</th>
+                                    <th data-sort="roCode" style="text-align: right;">RO Code (B)</th>
+                                    <th data-sort="roData" style="text-align: right;">RO Data (B)</th>
+                                    <th data-sort="rwData" style="text-align: right;">RW Data (B)</th>
+                                    <th data-sort="romSize" style="text-align: right;" class="sort-active">ROM Size (B)</th>
+                                    <th data-sort="romPercentage" style="text-align: right;">ROM %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body">
+                                <!-- Populated dynamically by app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Application Scripts -->
+    <script src="js/parser.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        // Mini dropzone syncs with main dropzone logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const miniDropzone = document.getElementById('dropzone-mini');
+            const fileInput = document.getElementById('file-input');
+            if (miniDropzone) {
+                miniDropzone.addEventListener('click', () => fileInput.click());
+                
+                miniDropzone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    miniDropzone.classList.add('dragover');
+                });
+                
+                ['dragleave', 'drop'].forEach(eventName => {
+                    miniDropzone.addEventListener(eventName, () => {
+                        miniDropzone.classList.remove('dragover');
+                    });
+                });
+                
+                miniDropzone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        // Find app.js file processor and pass files
+                        const inputEvent = new Event('change');
+                        fileInput.files = files;
+                        fileInput.dispatchEvent(inputEvent);
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
