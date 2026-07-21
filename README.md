@@ -2,6 +2,8 @@
 
 A modern, web-based, client-side utility to parse IAR Systems Embedded Workbench for ARM (EWARM) `.map` files and visualize their ROM (RO Code + RO Data) footprint as an interactive, zoomable treemap by compilation modules (`.o`) and libraries (`.a`).
 
+👉 **Live Web Version:** [https://funap.github.io/iar-map-visualizer/](https://funap.github.io/iar-map-visualizer/)
+
 ---
 
 ## 🌟 Key Features
@@ -50,6 +52,11 @@ iar-map-visualizer/
 
 ## 🚀 How to Run
 
+### Web Version
+You can access the live web application directly at:
+[https://funap.github.io/iar-map-visualizer/](https://funap.github.io/iar-map-visualizer/)
+
+### Local Version
 1. Open [index.html](file:///Users/af/workspace/iar-map-visualizer/index.html) in your favorite modern web browser.
 2. Click **"Load Mock Sample"** (or **"Explore with Sample Map"**) to inspect the bundled sample data.
 3. Drag and drop any of your local EWARM `.map` files into the designated zone to analyze your own builds.
