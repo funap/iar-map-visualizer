@@ -1,7 +1,7 @@
 // Application State
 let appData = null; // Parsed map data { groups, totals }
 let ewpData = null; // Parsed ewp project data { rootGroups, rootFiles, fileMap }
-let activeGroupingMode = 'library'; // 'library' | 'folder'
+let activeGroupingMode = 'library'; // 'library' | 'folder' | 'romArea'
 let mapFileName = '';
 let ewpFileName = '';
 let activeSortColumn = 'romSize';
@@ -36,8 +36,9 @@ function initDOM() {
     // Grouping mode buttons
     const btnGroupLibrary = document.getElementById('group-mode-library');
     const btnGroupFolder = document.getElementById('group-mode-folder');
+    const btnGroupRomArea = document.getElementById('group-mode-rom-area');
     
-    if (btnGroupLibrary && btnGroupFolder) {
+    if (btnGroupLibrary && btnGroupFolder && btnGroupRomArea) {
         btnGroupLibrary.addEventListener('click', () => {
             setGroupingMode('library');
         });
@@ -48,6 +49,9 @@ function initDOM() {
                 return;
             }
             setGroupingMode('folder');
+        });
+        btnGroupRomArea.addEventListener('click', () => {
+            setGroupingMode('romArea');
         });
     }
 
@@ -231,13 +235,17 @@ function setGroupingMode(mode) {
     activeGroupingMode = mode;
     const btnLib = document.getElementById('group-mode-library');
     const btnFold = document.getElementById('group-mode-folder');
-    if (btnLib && btnFold) {
+    const btnArea = document.getElementById('group-mode-rom-area');
+    if (btnLib && btnFold && btnArea) {
         btnLib.classList.toggle('active', mode === 'library');
         btnFold.classList.toggle('active', mode === 'folder');
+        btnArea.classList.toggle('active', mode === 'romArea');
     }
     const colHeader = document.querySelector('th[data-sort="group"]');
     if (colHeader) {
-        colHeader.innerText = mode === 'folder' ? 'EWARM Folder' : 'Library/Group';
+        if (mode === 'folder') colHeader.innerText = 'EWARM Folder';
+        else if (mode === 'romArea') colHeader.innerText = 'ROM Area (0x2000\'0000)';
+        else colHeader.innerText = 'Library/Group';
     }
     if (appData) {
         drawTreemap();
@@ -267,6 +275,20 @@ const SAMPLE_MAP_FALLBACK = `###################################################
 # Copyright 2007-2020 IAR Systems AB.
 #
 ###############################################################################
+
+***************************************************************************
+*** PLACEMENT SUMMARY ***
+
+  "A1": place at address 0x08000000 { ro section .text, ro section .rodata };
+  "A2": place at address 0x90000000 { ro section .qspi_text, ro section .qspi_rodata };
+
+  Address       Size  Type    Object
+  0x08000000   0x1204  code    display.o
+  0x08001204   0x0936  code    main.o
+  0x08001b3a   0x0914  code    motor.o
+  0x0800244e   0x0450  code    sensor.o
+  0x0800289e   0x030c  code    utils.o
+  0x90000000  0x4500  code    wifi.o
 
 ***************************************************************************
 *** MODULE SUMMARY ***
@@ -463,6 +485,16 @@ function updateBudgetMeter() {
 function getChartData() {
     if (!appData) return [];
 
+    if (activeGroupingMode === 'romArea') {
+        const treeNodes = buildRomAreaTree(appData, ewpData);
+        treeNodes.forEach((node, idx) => {
+            node.itemStyle = {
+                color: PALETTE[idx % PALETTE.length]
+            };
+        });
+        return treeNodes;
+    }
+
     if (activeGroupingMode === 'folder' && ewpData) {
         const treeNodes = buildEwpFolderTree(appData, ewpData);
         treeNodes.forEach((node, idx) => {
@@ -493,6 +525,7 @@ function getChartData() {
                 romSize: m.romSize,
                 romPercentage: romSizeTotal > 0 ? (m.romSize / romSizeTotal) * 100 : 0,
                 group: groupName,
+                romArea: m.romArea,
                 folderPath: `Group: ${groupName}`
             });
         });
@@ -531,8 +564,17 @@ function drawTreemap() {
                 const percentText = (nodeData.romPercentage || 0).toFixed(2);
                 
                 if (nodeData.roCode !== undefined) {
-                    const groupLabel = activeGroupingMode === 'folder' ? 'EWARM Folder:' : 'Group/Library:';
-                    const groupVal = nodeData.folderPath || nodeData.group || 'Unknown';
+                    let groupLabel = 'Group/Library:';
+                    let groupVal = nodeData.group || 'Unknown';
+                    if (activeGroupingMode === 'folder') {
+                        groupLabel = 'EWARM Folder:';
+                        groupVal = nodeData.folderPath || groupVal;
+                    } else if (activeGroupingMode === 'romArea') {
+                        groupLabel = 'ROM Area & Folder:';
+                        const folderInfo = nodeData.folderPath ? ` / ${nodeData.folderPath}` : '';
+                        groupVal = `${nodeData.romArea}${folderInfo}`;
+                    }
+
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
                             <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
@@ -563,7 +605,10 @@ function drawTreemap() {
                         </div>
                     `;
                 } else {
-                    const catLabel = activeGroupingMode === 'folder' ? 'Folder:' : 'Group:';
+                    let catLabel = 'Group:';
+                    if (activeGroupingMode === 'folder') catLabel = 'Folder:';
+                    else if (activeGroupingMode === 'romArea') catLabel = 'Area/Folder:';
+
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
                             <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${nodeData.name}</div>
@@ -677,10 +722,17 @@ function getFlatModules() {
                 }
             }
             
+            let displayGroup = m.group;
+            if (activeGroupingMode === 'folder') {
+                displayGroup = folderPath;
+            } else if (activeGroupingMode === 'romArea') {
+                displayGroup = ewpData ? `${m.romArea} | ${folderPath}` : m.romArea;
+            }
+
             list.push({
                 ...m,
                 folderPath: folderPath,
-                displayGroup: activeGroupingMode === 'folder' ? folderPath : m.group,
+                displayGroup: displayGroup,
                 romPercentage: romSizeTotal > 0 ? (m.romSize / romSizeTotal) * 100 : 0
             });
         });
@@ -716,7 +768,8 @@ function renderTable() {
         modules = modules.filter(m => 
             m.name.toLowerCase().includes(searchQuery) || 
             m.group.toLowerCase().includes(searchQuery) ||
-            m.folderPath.toLowerCase().includes(searchQuery)
+            m.folderPath.toLowerCase().includes(searchQuery) ||
+            (m.romArea && m.romArea.toLowerCase().includes(searchQuery))
         );
     }
     
@@ -741,7 +794,7 @@ function renderTable() {
         const badgeText = m.displayGroup;
         
         tr.addEventListener('click', () => {
-            zoomToModuleInChart(m.group, m.folderPath, m.name);
+            zoomToModuleInChart(m.group, m.folderPath, m.name, m.romArea);
         });
         
         tr.innerHTML = `
@@ -758,13 +811,15 @@ function renderTable() {
     });
 }
 
-// Zoom treemap programmatically to a specific library or folder
-function zoomToModuleInChart(groupName, folderPath, moduleName) {
+// Zoom treemap programmatically to a specific library, folder, or ROM Area
+function zoomToModuleInChart(groupName, folderPath, moduleName, romArea) {
     if (!chartInstance) return;
     
     let targetNodeId = groupName;
     if (activeGroupingMode === 'folder' && folderPath) {
         targetNodeId = folderPath.split('/')[0];
+    } else if (activeGroupingMode === 'romArea' && romArea) {
+        targetNodeId = romArea;
     }
     
     chartInstance.dispatchAction({
@@ -774,3 +829,4 @@ function zoomToModuleInChart(groupName, folderPath, moduleName) {
     
     document.getElementById('treemap-chart').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
+

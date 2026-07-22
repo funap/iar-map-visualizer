@@ -86,7 +86,38 @@ function parseColumnSpans(separatorLine) {
 }
 
 /**
- * Parse an EWARM map file content and return module groups and statistics.
+ * Converts a 32-bit address into a 0x2000'0000 (512MB) bounded ROM Area string.
+ * @param {number|undefined} address 
+ * @returns {string}
+ */
+
+function getRomAreaName(address) {
+    if (address === undefined || address === null || isNaN(address)) {
+        return "0x0000'0000 - 0x1FFF'FFFF (Internal Flash / Code)";
+    }
+    const blockIdx = Math.floor(address / 0x20000000);
+    const startAddr = blockIdx * 0x20000000;
+    const endAddr = startAddr + 0x1FFFFFFF;
+    
+    const formatHex = (num) => "0x" + num.toString(16).padStart(8, '0').toUpperCase().replace(/(.{4})(.{4})/, "$1'$2");
+    const startHex = formatHex(startAddr);
+    const endHex = formatHex(endAddr);
+
+    let areaLabel = "Memory Area";
+    if (blockIdx === 0) areaLabel = "Internal Flash / Code";
+    else if (blockIdx === 1) areaLabel = "Internal SRAM";
+    else if (blockIdx === 2) areaLabel = "Peripherals";
+    else if (blockIdx === 3) areaLabel = "External Memory 1";
+    else if (blockIdx === 4) areaLabel = "External Memory 2 (QSPI/OSPI)";
+    else if (blockIdx === 5) areaLabel = "External Device 1";
+    else if (blockIdx === 6) areaLabel = "External Memory 3 / SDRAM";
+    else if (blockIdx === 7) areaLabel = "System Level";
+
+    return `${startHex} - ${endHex} (${areaLabel})`;
+}
+
+/**
+ * Parse an EWARM map file content and return module groups, address placements, and statistics.
  * @param {string} text 
  * @returns {Object} { groups: { groupName: Array }, totals: { roCode, roData, rwData, romSize } }
  */
@@ -104,6 +135,31 @@ function parseMapFile(text) {
     let totalRoCode = 0;
     let totalRoData = 0;
     let totalRwData = 0;
+
+    // Build module to address mapping from PLACEMENT SUMMARY or SECTION PLACEMENT
+    const moduleAddressMap = new Map();
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        // Look for lines containing addresses (0x08000000, 0x90000000, etc.) and module object names (.o)
+        const addrMatch = trimmed.match(/(?:0x|0X)([0-9a-fA-F]{7,8}).*?\b([a-zA-Z0-9_\-\.]+\.o)\b/) ||
+                          trimmed.match(/\b([a-zA-Z0-9_\-\.]+\.o)\b.*?(?:0x|0X)([0-9a-fA-F]{7,8})/);
+        if (addrMatch) {
+            let hexStr, modName;
+            if (addrMatch[1].toLowerCase().endsWith('.o')) {
+                modName = addrMatch[1].toLowerCase();
+                hexStr = addrMatch[2];
+            } else {
+                hexStr = addrMatch[1];
+                modName = addrMatch[2].toLowerCase();
+            }
+            const addrVal = parseInt(hexStr, 16);
+            if (!isNaN(addrVal)) {
+                if (!moduleAddressMap.has(modName) || addrVal < moduleAddressMap.get(modName)) {
+                    moduleAddressMap.set(modName, addrVal);
+                }
+            }
+        }
+    });
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -181,6 +237,12 @@ function parseMapFile(text) {
                 
                 moduleData.romSize = moduleData.roCode + moduleData.roData;
                 
+                // Assign Address and ROM Area
+                const lowerObjName = cleanedName.toLowerCase();
+                const matchedAddr = moduleAddressMap.get(lowerObjName);
+                moduleData.address = matchedAddr !== undefined ? matchedAddr : 0x08000000;
+                moduleData.romArea = getRomAreaName(moduleData.address);
+
                 // Only include if it has non-zero memory consumption
                 if (moduleData.romSize > 0 || moduleData.rwData > 0) {
                     if (!groups[currentGroup]) {
@@ -233,6 +295,12 @@ function parseMapFile(text) {
                     
                     moduleData.romSize = moduleData.roCode + moduleData.roData;
                     
+                    // Assign Address and ROM Area
+                    const lowerObjName = cleanedName.toLowerCase();
+                    const matchedAddr = moduleAddressMap.get(lowerObjName);
+                    moduleData.address = matchedAddr !== undefined ? matchedAddr : 0x08000000;
+                    moduleData.romArea = getRomAreaName(moduleData.address);
+
                     if (moduleData.romSize > 0 || moduleData.rwData > 0) {
                         if (!groups[currentGroup]) {
                             groups[currentGroup] = {
@@ -479,6 +547,7 @@ function buildEwpFolderTree(parsedMapData, parsedEwpData) {
                     romSize: m.romSize,
                     romPercentage: totalRom > 0 ? (m.romSize / totalRom) * 100 : 0,
                     group: m.group,
+                    romArea: m.romArea,
                     folderPath: node.fullPath
                 });
             });
@@ -500,11 +569,148 @@ function buildEwpFolderTree(parsedMapData, parsedEwpData) {
     return convertToEchartsNodes(treeRoot);
 }
 
+/**
+ * Constructs a hierarchical tree structure for ECharts treemap grouped by 0x2000'0000 ROM Area,
+ * and nested by EWARM project virtual folder paths if parsedEwpData is available.
+ * @param {Object} parsedMapData { groups, totals }
+ * @param {Object} [parsedEwpData] { rootGroups, rootFiles, fileMap }
+ * @returns {Array} ECharts treemap nodes hierarchy
+ */
+function buildRomAreaTree(parsedMapData, parsedEwpData) {
+    if (!parsedMapData || !parsedMapData.groups) return [];
+    
+    const fileMap = parsedEwpData ? parsedEwpData.fileMap : null;
+    const totalRom = parsedMapData.totals.romSize;
+
+    // Map: areaName -> Map of folder nodes
+    const areaTreeRoots = new Map();
+
+    for (const grpName in parsedMapData.groups) {
+        const groupObj = parsedMapData.groups[grpName];
+        groupObj.modules.forEach(m => {
+            const areaName = m.romArea || getRomAreaName(m.address);
+            const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
+            
+            let folderPath = "";
+            if (fileMap && fileMap.has(stem)) {
+                folderPath = fileMap.get(stem)[0];
+            } else {
+                if (m.group && m.group !== "Obj" && m.group !== "Unknown Group") {
+                    folderPath = `Libraries & System/${m.group}`;
+                } else {
+                    folderPath = "Unassigned Modules";
+                }
+            }
+
+            if (!areaTreeRoots.has(areaName)) {
+                areaTreeRoots.set(areaName, new Map());
+            }
+
+            const areaFolderMap = areaTreeRoots.get(areaName);
+            const pathParts = folderPath ? folderPath.split("/") : [];
+
+            let currentLevel = areaFolderMap;
+            let fullPath = areaName;
+            let currentNode = null;
+
+            for (let i = 0; i < pathParts.length; i++) {
+                const part = pathParts[i];
+                fullPath = `${fullPath}/${part}`;
+
+                if (!currentLevel.has(part)) {
+                    const newNode = {
+                        name: part,
+                        fullPath: fullPath,
+                        childrenMap: new Map(),
+                        modules: []
+                    };
+                    currentLevel.set(part, newNode);
+                }
+                currentNode = currentLevel.get(part);
+                currentLevel = currentNode.childrenMap;
+            }
+
+            if (currentNode) {
+                currentNode.modules.push({
+                    ...m,
+                    folderPath: folderPath
+                });
+            }
+        });
+    }
+
+    function convertFolderNodesToEcharts(nodesMap) {
+        const result = [];
+        nodesMap.forEach(node => {
+            let nodeRomSum = 0;
+            const children = [];
+
+            if (node.childrenMap.size > 0) {
+                const childNodes = convertFolderNodesToEcharts(node.childrenMap);
+                childNodes.forEach(c => {
+                    nodeRomSum += c.value;
+                    children.push(c);
+                });
+            }
+
+            node.modules.forEach(m => {
+                nodeRomSum += m.romSize;
+                children.push({
+                    name: m.name,
+                    value: m.romSize,
+                    roCode: m.roCode,
+                    roData: m.roData,
+                    rwData: m.rwData,
+                    romSize: m.romSize,
+                    romPercentage: totalRom > 0 ? (m.romSize / totalRom) * 100 : 0,
+                    group: m.group,
+                    romArea: m.romArea,
+                    folderPath: m.folderPath
+                });
+            });
+
+            if (nodeRomSum > 0) {
+                result.push({
+                    name: node.name,
+                    fullPath: node.fullPath,
+                    value: nodeRomSum,
+                    romPercentage: totalRom > 0 ? (nodeRomSum / totalRom) * 100 : 0,
+                    children: children
+                });
+            }
+        });
+        return result;
+    }
+
+    const rootAreaNodes = [];
+    areaTreeRoots.forEach((folderMap, areaName) => {
+        const folderNodes = convertFolderNodesToEcharts(folderMap);
+        let areaRomSum = 0;
+        folderNodes.forEach(fn => { areaRomSum += fn.value; });
+
+        if (areaRomSum > 0) {
+            rootAreaNodes.push({
+                name: areaName,
+                fullPath: areaName,
+                value: areaRomSum,
+                romPercentage: totalRom > 0 ? (areaRomSum / totalRom) * 100 : 0,
+                children: folderNodes
+            });
+        }
+    });
+
+    rootAreaNodes.sort((a, b) => a.name.localeCompare(b.name));
+    return rootAreaNodes;
+}
+
 if (typeof exports !== 'undefined') {
     exports.parseMapFile = parseMapFile;
     exports.cleanGroupName = cleanGroupName;
     exports.parseHeaders = parseHeaders;
     exports.parseEwpFile = parseEwpFile;
     exports.buildEwpFolderTree = buildEwpFolderTree;
+    exports.buildRomAreaTree = buildRomAreaTree;
+    exports.getRomAreaName = getRomAreaName;
 }
+
 
