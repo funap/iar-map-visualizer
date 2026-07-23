@@ -460,13 +460,13 @@ function parseEwpFile(xmlText) {
  * Constructs a hierarchical tree structure for ECharts treemap from mapped folder paths.
  * @param {Object} parsedMapData { groups, totals }
  * @param {Object} parsedEwpData { rootGroups, rootFiles, fileMap }
+ * @param {string} [metric='rom'] 'rom' | 'ram'
  * @returns {Array} ECharts treemap nodes hierarchy
  */
-function buildEwpFolderTree(parsedMapData, parsedEwpData) {
+function buildEwpFolderTree(parsedMapData, parsedEwpData, metric = 'rom') {
     if (!parsedMapData || !parsedMapData.groups) return [];
     
     const fileMap = parsedEwpData ? parsedEwpData.fileMap : new Map();
-    
     const treeRoot = new Map();
 
     function getOrCreateNode(pathParts) {
@@ -494,11 +494,14 @@ function buildEwpFolderTree(parsedMapData, parsedEwpData) {
         return currentNode;
     }
 
-    const totalRom = parsedMapData.totals.romSize;
+    const totalSize = metric === 'ram' ? parsedMapData.totals.rwData : parsedMapData.totals.romSize;
 
     for (const grpName in parsedMapData.groups) {
         const groupObj = parsedMapData.groups[grpName];
         groupObj.modules.forEach(m => {
+            const mSize = metric === 'ram' ? m.rwData : m.romSize;
+            if (mSize <= 0) return;
+
             const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
             let folderPath = "";
 
@@ -525,39 +528,44 @@ function buildEwpFolderTree(parsedMapData, parsedEwpData) {
         const result = [];
 
         nodesMap.forEach(node => {
-            let nodeRomSum = 0;
+            let nodeSum = 0;
             const children = [];
 
             if (node.childrenMap.size > 0) {
                 const childFolderNodes = convertToEchartsNodes(node.childrenMap);
                 childFolderNodes.forEach(c => {
-                    nodeRomSum += c.value;
+                    nodeSum += c.value;
                     children.push(c);
                 });
             }
 
             node.modules.forEach(m => {
-                nodeRomSum += m.romSize;
+                const mSize = metric === 'ram' ? m.rwData : m.romSize;
+                nodeSum += mSize;
                 children.push({
                     name: m.name,
-                    value: m.romSize,
+                    value: mSize,
                     roCode: m.roCode,
                     roData: m.roData,
                     rwData: m.rwData,
                     romSize: m.romSize,
-                    romPercentage: totalRom > 0 ? (m.romSize / totalRom) * 100 : 0,
+                    percentage: totalSize > 0 ? (mSize / totalSize) * 100 : 0,
+                    romPercentage: parsedMapData.totals.romSize > 0 ? (m.romSize / parsedMapData.totals.romSize) * 100 : 0,
+                    ramPercentage: parsedMapData.totals.rwData > 0 ? (m.rwData / parsedMapData.totals.rwData) * 100 : 0,
                     group: m.group,
                     romArea: m.romArea,
                     folderPath: node.fullPath
                 });
             });
 
-            if (nodeRomSum > 0) {
+            if (nodeSum > 0) {
                 result.push({
                     name: node.name,
                     fullPath: node.fullPath,
-                    value: nodeRomSum,
-                    romPercentage: totalRom > 0 ? (nodeRomSum / totalRom) * 100 : 0,
+                    value: nodeSum,
+                    percentage: totalSize > 0 ? (nodeSum / totalSize) * 100 : 0,
+                    romPercentage: parsedMapData.totals.romSize > 0 ? (nodeSum / parsedMapData.totals.romSize) * 100 : 0,
+                    ramPercentage: parsedMapData.totals.rwData > 0 ? (nodeSum / parsedMapData.totals.rwData) * 100 : 0,
                     children: children
                 });
             }
@@ -574,20 +582,23 @@ function buildEwpFolderTree(parsedMapData, parsedEwpData) {
  * and nested by EWARM project virtual folder paths if parsedEwpData is available.
  * @param {Object} parsedMapData { groups, totals }
  * @param {Object} [parsedEwpData] { rootGroups, rootFiles, fileMap }
+ * @param {string} [metric='rom'] 'rom' | 'ram'
  * @returns {Array} ECharts treemap nodes hierarchy
  */
-function buildRomAreaTree(parsedMapData, parsedEwpData) {
+function buildRomAreaTree(parsedMapData, parsedEwpData, metric = 'rom') {
     if (!parsedMapData || !parsedMapData.groups) return [];
     
     const fileMap = parsedEwpData ? parsedEwpData.fileMap : null;
-    const totalRom = parsedMapData.totals.romSize;
+    const totalSize = metric === 'ram' ? parsedMapData.totals.rwData : parsedMapData.totals.romSize;
 
-    // Map: areaName -> Map of folder nodes
     const areaTreeRoots = new Map();
 
     for (const grpName in parsedMapData.groups) {
         const groupObj = parsedMapData.groups[grpName];
         groupObj.modules.forEach(m => {
+            const mSize = metric === 'ram' ? m.rwData : m.romSize;
+            if (mSize <= 0) return;
+
             const areaName = m.romArea || getRomAreaName(m.address);
             const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
             
@@ -642,39 +653,44 @@ function buildRomAreaTree(parsedMapData, parsedEwpData) {
     function convertFolderNodesToEcharts(nodesMap) {
         const result = [];
         nodesMap.forEach(node => {
-            let nodeRomSum = 0;
+            let nodeSum = 0;
             const children = [];
 
             if (node.childrenMap.size > 0) {
                 const childNodes = convertFolderNodesToEcharts(node.childrenMap);
                 childNodes.forEach(c => {
-                    nodeRomSum += c.value;
+                    nodeSum += c.value;
                     children.push(c);
                 });
             }
 
             node.modules.forEach(m => {
-                nodeRomSum += m.romSize;
+                const mSize = metric === 'ram' ? m.rwData : m.romSize;
+                nodeSum += mSize;
                 children.push({
                     name: m.name,
-                    value: m.romSize,
+                    value: mSize,
                     roCode: m.roCode,
                     roData: m.roData,
                     rwData: m.rwData,
                     romSize: m.romSize,
-                    romPercentage: totalRom > 0 ? (m.romSize / totalRom) * 100 : 0,
+                    percentage: totalSize > 0 ? (mSize / totalSize) * 100 : 0,
+                    romPercentage: parsedMapData.totals.romSize > 0 ? (m.romSize / parsedMapData.totals.romSize) * 100 : 0,
+                    ramPercentage: parsedMapData.totals.rwData > 0 ? (m.rwData / parsedMapData.totals.rwData) * 100 : 0,
                     group: m.group,
                     romArea: m.romArea,
                     folderPath: m.folderPath
                 });
             });
 
-            if (nodeRomSum > 0) {
+            if (nodeSum > 0) {
                 result.push({
                     name: node.name,
                     fullPath: node.fullPath,
-                    value: nodeRomSum,
-                    romPercentage: totalRom > 0 ? (nodeRomSum / totalRom) * 100 : 0,
+                    value: nodeSum,
+                    percentage: totalSize > 0 ? (nodeSum / totalSize) * 100 : 0,
+                    romPercentage: parsedMapData.totals.romSize > 0 ? (nodeSum / parsedMapData.totals.romSize) * 100 : 0,
+                    ramPercentage: parsedMapData.totals.rwData > 0 ? (nodeSum / parsedMapData.totals.rwData) * 100 : 0,
                     children: children
                 });
             }
@@ -685,15 +701,17 @@ function buildRomAreaTree(parsedMapData, parsedEwpData) {
     const rootAreaNodes = [];
     areaTreeRoots.forEach((folderMap, areaName) => {
         const folderNodes = convertFolderNodesToEcharts(folderMap);
-        let areaRomSum = 0;
-        folderNodes.forEach(fn => { areaRomSum += fn.value; });
+        let areaSum = 0;
+        folderNodes.forEach(fn => { areaSum += fn.value; });
 
-        if (areaRomSum > 0) {
+        if (areaSum > 0) {
             rootAreaNodes.push({
                 name: areaName,
                 fullPath: areaName,
-                value: areaRomSum,
-                romPercentage: totalRom > 0 ? (areaRomSum / totalRom) * 100 : 0,
+                value: areaSum,
+                percentage: totalSize > 0 ? (areaSum / totalSize) * 100 : 0,
+                romPercentage: parsedMapData.totals.romSize > 0 ? (areaSum / parsedMapData.totals.romSize) * 100 : 0,
+                ramPercentage: parsedMapData.totals.rwData > 0 ? (areaSum / parsedMapData.totals.rwData) * 100 : 0,
                 children: folderNodes
             });
         }
@@ -703,6 +721,187 @@ function buildRomAreaTree(parsedMapData, parsedEwpData) {
     return rootAreaNodes;
 }
 
+/**
+ * Flexible module tree builder for ECharts treemap.
+ * @param {Object} parsedMapData { groups, totals }
+ * @param {Object} [parsedEwpData] { rootGroups, rootFiles, fileMap }
+ * @param {string} [groupingMode='library'] 'none' | 'library' | 'folder'
+ * @param {string} [metric='rom'] 'rom' | 'ram'
+ * @param {string} [targetRomArea=null] Filter to a specific ROM Area if provided
+ * @returns {Array} ECharts treemap nodes hierarchy
+ */
+function buildModuleTree(parsedMapData, parsedEwpData, groupingMode = 'library', metric = 'rom', targetRomArea = null) {
+    if (!parsedMapData || !parsedMapData.groups) return [];
+
+    const fileMap = parsedEwpData ? parsedEwpData.fileMap : null;
+    const globalRomTotal = parsedMapData.totals.romSize;
+    const globalRamTotal = parsedMapData.totals.rwData;
+
+    // Collect filtered modules
+    const modules = [];
+    let areaTotal = 0;
+
+    for (const grpName in parsedMapData.groups) {
+        const groupObj = parsedMapData.groups[grpName];
+        groupObj.modules.forEach(m => {
+            if (targetRomArea && m.romArea !== targetRomArea) return;
+
+            const mSize = metric === 'ram' ? m.rwData : m.romSize;
+            if (mSize <= 0) return;
+
+            const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
+            let folderPath = "";
+            if (fileMap && fileMap.has(stem)) {
+                folderPath = fileMap.get(stem)[0];
+            } else {
+                if (m.group && m.group !== "Obj" && m.group !== "Unknown Group") {
+                    folderPath = `Libraries & System/${m.group}`;
+                } else {
+                    folderPath = "Unassigned Modules";
+                }
+            }
+
+            areaTotal += mSize;
+            modules.push({
+                ...m,
+                mSize: mSize,
+                folderPath: folderPath
+            });
+        });
+    }
+
+    if (modules.length === 0) return [];
+
+    // Helper to create module leaf node for ECharts
+    function createLeafNode(m) {
+        return {
+            name: m.name,
+            value: m.mSize,
+            roCode: m.roCode,
+            roData: m.roData,
+            rwData: m.rwData,
+            romSize: m.romSize,
+            percentage: areaTotal > 0 ? (m.mSize / areaTotal) * 100 : 0,
+            romPercentage: globalRomTotal > 0 ? (m.romSize / globalRomTotal) * 100 : 0,
+            ramPercentage: globalRamTotal > 0 ? (m.rwData / globalRamTotal) * 100 : 0,
+            group: m.group,
+            romArea: m.romArea,
+            folderPath: m.folderPath
+        };
+    }
+
+    // MODE 1: NO GROUPING ('none')
+    if (groupingMode === 'none') {
+        return modules.map(m => createLeafNode(m));
+    }
+
+    // MODE 2: LIBRARY GROUPING ('library')
+    if (groupingMode === 'library') {
+        const groupMap = new Map();
+        modules.forEach(m => {
+            const grpKey = m.group || "Obj";
+            if (!groupMap.has(grpKey)) {
+                groupMap.set(grpKey, []);
+            }
+            groupMap.get(grpKey).push(m);
+        });
+
+        const result = [];
+        groupMap.forEach((modList, grpKey) => {
+            let grpSum = 0;
+            const children = modList.map(m => {
+                grpSum += m.mSize;
+                return createLeafNode(m);
+            });
+
+            if (grpSum > 0) {
+                result.push({
+                    name: grpKey,
+                    value: grpSum,
+                    percentage: areaTotal > 0 ? (grpSum / areaTotal) * 100 : 0,
+                    romPercentage: globalRomTotal > 0 ? (grpSum / globalRomTotal) * 100 : 0,
+                    ramPercentage: globalRamTotal > 0 ? (grpSum / globalRamTotal) * 100 : 0,
+                    children: children
+                });
+            }
+        });
+
+        return result;
+    }
+
+    // MODE 3: EWARM FOLDER GROUPING ('folder')
+    const treeRoot = new Map();
+
+    function getOrCreateNode(pathParts) {
+        let currentLevel = treeRoot;
+        let fullPath = "";
+        let currentNode = null;
+
+        for (let i = 0; i < pathParts.length; i++) {
+            const part = pathParts[i];
+            fullPath = fullPath ? `${fullPath}/${part}` : part;
+
+            if (!currentLevel.has(part)) {
+                const newNode = {
+                    name: part,
+                    fullPath: fullPath,
+                    childrenMap: new Map(),
+                    modules: []
+                };
+                currentLevel.set(part, newNode);
+            }
+            currentNode = currentLevel.get(part);
+            currentLevel = currentNode.childrenMap;
+        }
+
+        return currentNode;
+    }
+
+    modules.forEach(m => {
+        const pathParts = m.folderPath ? m.folderPath.split("/") : ["Unassigned Modules"];
+        const targetNode = getOrCreateNode(pathParts);
+        targetNode.modules.push(m);
+    });
+
+    function convertFolderNodesToEcharts(nodesMap) {
+        const result = [];
+
+        nodesMap.forEach(node => {
+            let nodeSum = 0;
+            const children = [];
+
+            if (node.childrenMap.size > 0) {
+                const childFolderNodes = convertFolderNodesToEcharts(node.childrenMap);
+                childFolderNodes.forEach(c => {
+                    nodeSum += c.value;
+                    children.push(c);
+                });
+            }
+
+            node.modules.forEach(m => {
+                nodeSum += m.mSize;
+                children.push(createLeafNode(m));
+            });
+
+            if (nodeSum > 0) {
+                result.push({
+                    name: node.name,
+                    fullPath: node.fullPath,
+                    value: nodeSum,
+                    percentage: areaTotal > 0 ? (nodeSum / areaTotal) * 100 : 0,
+                    romPercentage: globalRomTotal > 0 ? (nodeSum / globalRomTotal) * 100 : 0,
+                    ramPercentage: globalRamTotal > 0 ? (nodeSum / globalRamTotal) * 100 : 0,
+                    children: children
+                });
+            }
+        });
+
+        return result;
+    }
+
+    return convertFolderNodesToEcharts(treeRoot);
+}
+
 if (typeof exports !== 'undefined') {
     exports.parseMapFile = parseMapFile;
     exports.cleanGroupName = cleanGroupName;
@@ -710,7 +909,9 @@ if (typeof exports !== 'undefined') {
     exports.parseEwpFile = parseEwpFile;
     exports.buildEwpFolderTree = buildEwpFolderTree;
     exports.buildRomAreaTree = buildRomAreaTree;
+    exports.buildModuleTree = buildModuleTree;
     exports.getRomAreaName = getRomAreaName;
 }
+
 
 

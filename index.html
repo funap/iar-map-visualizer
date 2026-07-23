@@ -176,32 +176,72 @@
                     </div>
                 </div>
 
-                <!-- Treemap View Panel -->
+                <!-- ROM Treemap View Panel -->
+                <div class="glass-card chart-card animate-fade-in">
+                    <div class="chart-header" style="flex-direction: column; align-items: stretch; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                            <h2>
+                                <i data-lucide="layout-grid" style="width: 18px; height: 18px; stroke: var(--color-primary-light);"></i> ROM Treemap Visualizer
+                            </h2>
+                            <span style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                                <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents ROM size (ro code + ro data)
+                            </span>
+                        </div>
+                        
+                        <!-- Visualization Options Bar -->
+                        <div class="options-bar" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; background: rgba(15, 23, 42, 0.4); padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                            <!-- Grouping Setting -->
+                            <div class="option-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Grouping:</span>
+                                <div class="segmented-control">
+                                    <button id="group-mode-none" class="segmented-btn" title="No grouping">
+                                        <i data-lucide="file" style="width: 14px; height: 14px;"></i> None
+                                    </button>
+                                    <button id="group-mode-library" class="segmented-btn active" title="Group by library">
+                                        <i data-lucide="package" style="width: 14px; height: 14px;"></i> Library
+                                    </button>
+                                    <button id="group-mode-folder" class="segmented-btn" title="Group by EWARM project folders">
+                                        <i data-lucide="folder-tree" style="width: 14px; height: 14px;"></i> EWARM Folders
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- ROM Area Setting -->
+                            <div class="option-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">ROM Areas:</span>
+                                <div class="segmented-control">
+                                    <button id="area-display-single" class="segmented-btn active" title="Show all ROM areas in one treemap">
+                                        <i data-lucide="square" style="width: 14px; height: 14px;"></i> Single Treemap
+                                    </button>
+                                    <button id="area-display-per-area" class="segmented-btn" title="Show separate treemap per ROM area">
+                                        <i data-lucide="grid" style="width: 14px; height: 14px;"></i> Split by Area
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Single TreeMap Chart Container -->
+                    <div id="treemap-chart" class="chart-container"></div>
+                    <!-- Separate ROM Area TreeMap Charts Container -->
+                    <div id="rom-area-treemaps-container" class="rom-area-grid hidden"></div>
+                </div>
+
+                <!-- RAM Treemap View Panel -->
                 <div class="glass-card chart-card animate-fade-in">
                     <div class="chart-header">
                         <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
                             <h2>
-                                <i data-lucide="layout-grid" style="width: 18px; height: 18px; stroke: var(--color-primary-light);"></i> ROM Treemap Visualizer
+                                <i data-lucide="layers" style="width: 18px; height: 18px; stroke: var(--color-success);"></i> RAM (RW Data) Treemap Visualizer
                             </h2>
-                            <!-- Grouping Mode Switcher -->
-                            <div class="segmented-control">
-                                <button id="group-mode-library" class="segmented-btn active" title="Group by compiled library/module group">
-                                    <i data-lucide="package" style="width: 14px; height: 14px;"></i> Library / Group
-                                </button>
-                                <button id="group-mode-folder" class="segmented-btn" title="Group by EWARM project virtual folders (.ewp)">
-                                    <i data-lucide="folder-tree" style="width: 14px; height: 14px;"></i> EWARM Folders
-                                </button>
-                                <button id="group-mode-rom-area" class="segmented-btn" title="Group by 0x2000'0000 ROM Area">
-                                    <i data-lucide="cpu" style="width: 14px; height: 14px;"></i> ROM Area (0x2000'0000)
-                                </button>
-                            </div>
                         </div>
                         <span style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
-                            <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents ROM size (ro code + ro data)
+                            <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents RAM size (rw data)
                         </span>
                     </div>
-                    <div id="treemap-chart" class="chart-container"></div>
+                    <div id="ram-treemap-chart" class="chart-container"></div>
                 </div>
+
 
 
                 <!-- Detailed Modules Table -->

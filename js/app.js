@@ -1,7 +1,8 @@
 // Application State
 let appData = null; // Parsed map data { groups, totals }
 let ewpData = null; // Parsed ewp project data { rootGroups, rootFiles, fileMap }
-let activeGroupingMode = 'library'; // 'library' | 'folder' | 'romArea'
+let activeGroupingMode = 'library'; // 'none' | 'library' | 'folder'
+let activeRomAreaDisplayMode = 'single'; // 'single' | 'perArea'
 let mapFileName = '';
 let ewpFileName = '';
 let activeSortColumn = 'romSize';
@@ -9,11 +10,19 @@ let activeSortDesc = true;
 let searchQuery = '';
 let targetFlashBytes = 256 * 1024; // Default 256KB
 let chartInstance = null;
+let perAreaChartInstances = []; // [{ areaName, instance, dom, cardDom }]
+let ramChartInstance = null;
 
-// Color Palette for Libraries and Top Folders
+// Color Palette for Libraries and Top Folders (ROM Treemap)
 const PALETTE = [
     '#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b',
     '#06b6d4', '#14b8a6', '#f43f5e', '#a855f7', '#3b82f6'
+];
+
+// Color Palette for RAM Treemap (Emerald/Teal Theme)
+const RAM_PALETTE = [
+    '#10b981', '#14b8a6', '#06b6d4', '#22c55e', '#84cc16',
+    '#059669', '#0d9488', '#0891b2', '#16a34a', '#34d399'
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -34,31 +43,57 @@ function initDOM() {
     const searchInput = document.getElementById('search-input');
     
     // Grouping mode buttons
+    const btnGroupNone = document.getElementById('group-mode-none');
     const btnGroupLibrary = document.getElementById('group-mode-library');
     const btnGroupFolder = document.getElementById('group-mode-folder');
-    const btnGroupRomArea = document.getElementById('group-mode-rom-area');
     
-    if (btnGroupLibrary && btnGroupFolder && btnGroupRomArea) {
-        btnGroupLibrary.addEventListener('click', () => {
-            setGroupingMode('library');
-        });
+    if (btnGroupNone) {
+        btnGroupNone.addEventListener('click', () => setGroupingMode('none'));
+    }
+    if (btnGroupLibrary) {
+        btnGroupLibrary.addEventListener('click', () => setGroupingMode('library'));
+    }
+    if (btnGroupFolder) {
         btnGroupFolder.addEventListener('click', () => {
             if (!ewpData) {
-                alert('No .ewp file loaded yet. Please select or drag & drop an IAR project (.ewp) file.');
                 if (ewpFileInput) ewpFileInput.click();
                 return;
             }
             setGroupingMode('folder');
         });
-        btnGroupRomArea.addEventListener('click', () => {
-            setGroupingMode('romArea');
-        });
+    }
+
+    // ROM Area Display mode buttons
+    const btnAreaSingle = document.getElementById('area-display-single');
+    const btnAreaPerArea = document.getElementById('area-display-per-area');
+
+    if (btnAreaSingle) {
+        btnAreaSingle.addEventListener('click', () => setRomAreaDisplayMode('single'));
+    }
+    if (btnAreaPerArea) {
+        btnAreaPerArea.addEventListener('click', () => setRomAreaDisplayMode('perArea'));
     }
 
     // File inputs
     if (dropzone) dropzone.addEventListener('click', () => fileInput.click());
     if (fileInput) fileInput.addEventListener('change', (e) => processFileList(e.target.files));
-    if (ewpFileInput) ewpFileInput.addEventListener('change', (e) => processFileList(e.target.files));
+    if (ewpFileInput) {
+        ewpFileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            const ewpFile = files.find(f => f.name.toLowerCase().endsWith('.ewp'));
+            if (!ewpFile) {
+                if (files.length > 0) {
+                    alert('Please select an IAR project file (.ewp).');
+                }
+                return;
+            }
+            readEwpFile(ewpFile, () => {
+                if (appData) {
+                    setGroupingMode('folder');
+                }
+            });
+        });
+    }
     if (uploadEwpBtn) uploadEwpBtn.addEventListener('click', () => ewpFileInput.click());
 
     // Drag & Drop for Main Dropzone
@@ -145,6 +180,12 @@ function initDOM() {
         if (chartInstance) {
             chartInstance.resize();
         }
+        perAreaChartInstances.forEach(item => {
+            if (item.instance) item.instance.resize();
+        });
+        if (ramChartInstance) {
+            ramChartInstance.resize();
+        }
     });
 }
 
@@ -152,6 +193,10 @@ function initChart() {
     const chartDom = document.getElementById('treemap-chart');
     if (chartDom) {
         chartInstance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+    }
+    const ramChartDom = document.getElementById('ram-treemap-chart');
+    if (ramChartDom) {
+        ramChartInstance = echarts.init(ramChartDom, 'dark', { renderer: 'canvas' });
     }
 }
 
@@ -233,25 +278,41 @@ function readMapFile(file) {
 
 function setGroupingMode(mode) {
     activeGroupingMode = mode;
+    const btnNone = document.getElementById('group-mode-none');
     const btnLib = document.getElementById('group-mode-library');
     const btnFold = document.getElementById('group-mode-folder');
-    const btnArea = document.getElementById('group-mode-rom-area');
-    if (btnLib && btnFold && btnArea) {
-        btnLib.classList.toggle('active', mode === 'library');
-        btnFold.classList.toggle('active', mode === 'folder');
-        btnArea.classList.toggle('active', mode === 'romArea');
-    }
+    
+    if (btnNone) btnNone.classList.toggle('active', mode === 'none');
+    if (btnLib) btnLib.classList.toggle('active', mode === 'library');
+    if (btnFold) btnFold.classList.toggle('active', mode === 'folder');
+
     const colHeader = document.querySelector('th[data-sort="group"]');
     if (colHeader) {
         if (mode === 'folder') colHeader.innerText = 'EWARM Folder';
-        else if (mode === 'romArea') colHeader.innerText = 'ROM Area (0x2000\'0000)';
+        else if (mode === 'none') colHeader.innerText = 'ROM Area';
         else colHeader.innerText = 'Library/Group';
     }
+    if (appData) {
+        drawTreemap();
+        drawRamTreemap();
+        renderTable();
+    }
+}
+
+function setRomAreaDisplayMode(mode) {
+    activeRomAreaDisplayMode = mode;
+    const btnSingle = document.getElementById('area-display-single');
+    const btnPerArea = document.getElementById('area-display-per-area');
+    
+    if (btnSingle) btnSingle.classList.toggle('active', mode === 'single');
+    if (btnPerArea) btnPerArea.classList.toggle('active', mode === 'perArea');
+
     if (appData) {
         drawTreemap();
         renderTable();
     }
 }
+
 
 function updateFileBadges() {
     const mapBadge = document.getElementById('map-file-badge');
@@ -422,11 +483,15 @@ function onDataLoaded() {
         if (chartInstance) {
             chartInstance.resize();
         }
+        if (ramChartInstance) {
+            ramChartInstance.resize();
+        }
     }, 50);
     
     updateKPIs();
     updateBudgetMeter();
     drawTreemap();
+    drawRamTreemap();
     updateSortHeaders();
     renderTable();
     
@@ -481,79 +546,43 @@ function updateBudgetMeter() {
     document.getElementById('budget-fraction').innerText = `${formatBytes(romSize)} / ${formatBytes(targetFlashBytes)}`;
 }
 
-// Prepare hierarchical ECharts structure
-function getChartData() {
+function getDistinctRomAreas() {
     if (!appData) return [];
-
-    if (activeGroupingMode === 'romArea') {
-        const treeNodes = buildRomAreaTree(appData, ewpData);
-        treeNodes.forEach((node, idx) => {
-            node.itemStyle = {
-                color: PALETTE[idx % PALETTE.length]
-            };
-        });
-        return treeNodes;
-    }
-
-    if (activeGroupingMode === 'folder' && ewpData) {
-        const treeNodes = buildEwpFolderTree(appData, ewpData);
-        treeNodes.forEach((node, idx) => {
-            node.itemStyle = {
-                color: PALETTE[idx % PALETTE.length]
-            };
-        });
-        return treeNodes;
-    }
-    
-    const romSizeTotal = appData.totals.romSize;
-    const chartNodes = [];
-    let colorIndex = 0;
-    
-    for (const groupName in appData.groups) {
-        const groupObj = appData.groups[groupName];
-        let groupRomSum = 0;
-        const children = [];
-        
-        groupObj.modules.forEach(m => {
-            groupRomSum += m.romSize;
-            children.push({
-                name: m.name,
-                value: m.romSize,
-                roCode: m.roCode,
-                roData: m.roData,
-                rwData: m.rwData,
-                romSize: m.romSize,
-                romPercentage: romSizeTotal > 0 ? (m.romSize / romSizeTotal) * 100 : 0,
-                group: groupName,
-                romArea: m.romArea,
-                folderPath: `Group: ${groupName}`
-            });
-        });
-        
-        if (groupRomSum === 0) continue;
-        
-        const color = PALETTE[colorIndex % PALETTE.length];
-        colorIndex++;
-        
-        chartNodes.push({
-            name: groupName,
-            value: groupRomSum,
-            romPercentage: romSizeTotal > 0 ? (groupRomSum / romSizeTotal) * 100 : 0,
-            children: children,
-            itemStyle: {
-                color: color
+    const areasSet = new Set();
+    for (const grpName in appData.groups) {
+        appData.groups[grpName].modules.forEach(m => {
+            if (m.romSize > 0) {
+                areasSet.add(m.romArea || getRomAreaName(m.address));
             }
         });
     }
-    
-    return chartNodes;
+    return Array.from(areasSet).sort();
 }
 
-function drawTreemap() {
-    if (!chartInstance) return;
-    const data = getChartData();
-    
-    const option = {
+function disposePerAreaCharts() {
+    perAreaChartInstances.forEach(item => {
+        if (item.instance) {
+            item.instance.dispose();
+        }
+    });
+    perAreaChartInstances = [];
+}
+
+function getChartData() {
+    if (!appData) return [];
+    const treeNodes = buildModuleTree(appData, ewpData, activeGroupingMode, 'rom', null);
+    treeNodes.forEach((node, idx) => {
+        if (!node.itemStyle) {
+            node.itemStyle = {
+                color: PALETTE[idx % PALETTE.length]
+            };
+        }
+    });
+    return treeNodes;
+}
+
+function renderTreemapOption(data) {
+    return {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'item',
@@ -561,7 +590,7 @@ function drawTreemap() {
                 const nodeData = info.data;
                 if (!nodeData) return info.name;
                 
-                const percentText = (nodeData.romPercentage || 0).toFixed(2);
+                const percentText = (nodeData.romPercentage || nodeData.percentage || 0).toFixed(2);
                 
                 if (nodeData.roCode !== undefined) {
                     let groupLabel = 'Group/Library:';
@@ -569,10 +598,9 @@ function drawTreemap() {
                     if (activeGroupingMode === 'folder') {
                         groupLabel = 'EWARM Folder:';
                         groupVal = nodeData.folderPath || groupVal;
-                    } else if (activeGroupingMode === 'romArea') {
-                        groupLabel = 'ROM Area & Folder:';
-                        const folderInfo = nodeData.folderPath ? ` / ${nodeData.folderPath}` : '';
-                        groupVal = `${nodeData.romArea}${folderInfo}`;
+                    } else if (activeGroupingMode === 'none') {
+                        groupLabel = 'ROM Area:';
+                        groupVal = nodeData.romArea || 'Unknown';
                     }
 
                     return `
@@ -607,7 +635,6 @@ function drawTreemap() {
                 } else {
                     let catLabel = 'Group:';
                     if (activeGroupingMode === 'folder') catLabel = 'Folder:';
-                    else if (activeGroupingMode === 'romArea') catLabel = 'Area/Folder:';
 
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
@@ -697,8 +724,244 @@ function drawTreemap() {
             }
         }]
     };
+}
+
+function drawTreemap() {
+    const singleContainer = document.getElementById('treemap-chart');
+    const multiContainer = document.getElementById('rom-area-treemaps-container');
+
+    if (activeRomAreaDisplayMode === 'single') {
+        if (singleContainer) singleContainer.classList.remove('hidden');
+        if (multiContainer) multiContainer.classList.add('hidden');
+        disposePerAreaCharts();
+
+        if (!chartInstance && singleContainer) {
+            chartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
+        }
+        if (chartInstance) {
+            const data = getChartData();
+            chartInstance.setOption(renderTreemapOption(data), true);
+        }
+    } else {
+        if (singleContainer) singleContainer.classList.add('hidden');
+        if (multiContainer) multiContainer.classList.remove('hidden');
+        disposePerAreaCharts();
+
+        if (!multiContainer || !appData) return;
+        multiContainer.innerHTML = '';
+
+        const romAreas = getDistinctRomAreas();
+        let colorIdx = 0;
+
+        romAreas.forEach((areaName, index) => {
+            const areaTreeData = buildModuleTree(appData, ewpData, activeGroupingMode, 'rom', areaName);
+            if (areaTreeData.length === 0) return;
+
+            let areaSum = 0;
+            const calcSum = (nodes) => {
+                nodes.forEach(n => {
+                    if (n.children && n.children.length > 0) calcSum(n.children);
+                    else areaSum += (n.value || 0);
+                });
+            };
+            calcSum(areaTreeData);
+
+            const card = document.createElement('div');
+            card.className = 'rom-area-card';
+            card.id = `rom-area-card-${index}`;
+
+            const header = document.createElement('div');
+            header.className = 'rom-area-card-header';
+            header.innerHTML = `
+                <div class="rom-area-title">
+                    <i data-lucide="cpu" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i>
+                    ${areaName}
+                </div>
+                <div class="rom-area-size">${formatBytes(areaSum)}</div>
+            `;
+
+            const chartDom = document.createElement('div');
+            chartDom.className = 'rom-area-chart';
+            chartDom.id = `rom-area-chart-${index}`;
+
+            card.appendChild(header);
+            card.appendChild(chartDom);
+            multiContainer.appendChild(card);
+
+            const color = PALETTE[colorIdx % PALETTE.length];
+            colorIdx++;
+
+            areaTreeData.forEach(n => {
+                if (!n.itemStyle) {
+                    n.itemStyle = { color: color };
+                }
+            });
+
+            const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+            instance.setOption(renderTreemapOption(areaTreeData), true);
+            perAreaChartInstances.push({ areaName, instance, dom: chartDom, cardDom: card });
+        });
+
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    }
+}
+
+// Prepare hierarchical ECharts structure for RAM (RW Data)
+function getRamChartData() {
+    if (!appData) return [];
+    const treeNodes = buildModuleTree(appData, ewpData, activeGroupingMode, 'ram', null);
+    treeNodes.forEach((node, idx) => {
+        if (!node.itemStyle) {
+            node.itemStyle = {
+                color: RAM_PALETTE[idx % RAM_PALETTE.length]
+            };
+        }
+    });
+    return treeNodes;
+}
+
+function drawRamTreemap() {
+    if (!ramChartInstance) return;
+    const data = getRamChartData();
     
-    chartInstance.setOption(option, true);
+    const option = {
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'item',
+            formatter: function (info) {
+                const nodeData = info.data;
+                if (!nodeData) return info.name;
+                
+                const percentText = (nodeData.percentage || nodeData.ramPercentage || 0).toFixed(2);
+                
+                if (nodeData.roCode !== undefined) {
+                    let groupLabel = 'Group/Library:';
+                    let groupVal = nodeData.group || 'Unknown';
+                    if (activeGroupingMode === 'folder') {
+                        groupLabel = 'EWARM Folder:';
+                        groupVal = nodeData.folderPath || groupVal;
+                    } else if (activeGroupingMode === 'none') {
+                        groupLabel = 'ROM Area:';
+                        groupVal = nodeData.romArea || 'Unknown';
+                    }
+
+                    return `
+                        <div style="font-family: Inter, sans-serif; padding: 4px;">
+                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
+                                <span style="color: #94a3b8;">${groupLabel}</span>
+                                <span style="font-weight: 500; color: #fff;">${groupVal}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
+                                <span style="color: #94a3b8;">RAM (RW Data):</span>
+                                <span style="font-weight: 600; color: #34d399;">${formatBytes(nodeData.rwData)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px; margin-bottom: 2px;">
+                                <span style="color: #94a3b8;">Total ROM:</span>
+                                <span style="font-weight: 500; color: #a78bfa;">${formatBytes(nodeData.romSize)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
+                                <span style="color: #94a3b8;">RAM Share:</span>
+                                <span style="font-weight: 600; color: #34d399;">${percentText}%</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    let catLabel = 'Group:';
+                    if (activeGroupingMode === 'folder') catLabel = 'Folder:';
+
+                    return `
+                        <div style="font-family: Inter, sans-serif; padding: 4px;">
+                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${nodeData.name}</div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
+                                <span style="color: #94a3b8;">Total RAM:</span>
+                                <span style="font-weight: 600; color: #34d399;">${formatBytes(nodeData.value)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
+                                <span style="color: #94a3b8;">Items:</span>
+                                <span style="font-weight: 500; color: #fff;">${nodeData.children ? nodeData.children.length : 0}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
+                                <span style="color: #94a3b8;">RAM Share:</span>
+                                <span style="font-weight: 600; color: #34d399;">${percentText}%</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            },
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            borderColor: '#10b981',
+            borderWidth: 1,
+            textStyle: {
+                color: '#f8fafc'
+            }
+        },
+        series: [{
+            type: 'treemap',
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 36,
+            data: data,
+            leafDepth: 1,
+            roam: 'moveAndZoom',
+            nodeClick: 'zoomToNode',
+            breadcrumb: {
+                show: true,
+                height: 32,
+                bottom: 0,
+                itemStyle: {
+                    color: '#064e3b',
+                    borderColor: '#047857',
+                    borderWidth: 1,
+                    textStyle: {
+                        color: '#f8fafc',
+                        fontFamily: 'Inter',
+                        fontSize: 11
+                    }
+                }
+            },
+            levels: [
+                {
+                    itemStyle: {
+                        borderColor: '#0f172a',
+                        borderWidth: 4,
+                        gapWidth: 4
+                    }
+                },
+                {
+                    colorSaturation: [0.35, 0.6],
+                    itemStyle: {
+                        borderColor: '#111827',
+                        borderWidth: 2,
+                        gapWidth: 2
+                    }
+                },
+                {
+                    colorSaturation: [0.3, 0.5],
+                    itemStyle: {
+                        borderColor: '#1e293b',
+                        borderWidth: 1,
+                        gapWidth: 1
+                    }
+                }
+            ],
+            label: {
+                show: true,
+                formatter: function(params) {
+                    return `${params.name}\n${formatBytes(params.value)}`;
+                },
+                fontFamily: 'Inter',
+                fontSize: 11,
+                color: '#ffffff',
+                lineHeight: 14
+            }
+        }]
+    };
+    
+    ramChartInstance.setOption(option, true);
 }
 
 // Flat list of modules for sorting and rendering in table
@@ -725,8 +988,8 @@ function getFlatModules() {
             let displayGroup = m.group;
             if (activeGroupingMode === 'folder') {
                 displayGroup = folderPath;
-            } else if (activeGroupingMode === 'romArea') {
-                displayGroup = ewpData ? `${m.romArea} | ${folderPath}` : m.romArea;
+            } else if (activeGroupingMode === 'none') {
+                displayGroup = m.romArea;
             }
 
             list.push({
@@ -811,22 +1074,50 @@ function renderTable() {
     });
 }
 
-// Zoom treemap programmatically to a specific library, folder, or ROM Area
+// Zoom treemap programmatically to a specific library, folder, or module
 function zoomToModuleInChart(groupName, folderPath, moduleName, romArea) {
-    if (!chartInstance) return;
-    
     let targetNodeId = groupName;
     if (activeGroupingMode === 'folder' && folderPath) {
         targetNodeId = folderPath.split('/')[0];
-    } else if (activeGroupingMode === 'romArea' && romArea) {
-        targetNodeId = romArea;
+    } else if (activeGroupingMode === 'none') {
+        targetNodeId = moduleName;
     }
-    
-    chartInstance.dispatchAction({
-        type: 'treemapZoomToNode',
-        targetNodeId: targetNodeId
-    });
-    
-    document.getElementById('treemap-chart').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    if (activeRomAreaDisplayMode === 'single') {
+        if (chartInstance) {
+            chartInstance.dispatchAction({
+                type: 'treemapZoomToNode',
+                targetNodeId: targetNodeId
+            });
+        }
+        const singleDom = document.getElementById('treemap-chart');
+        if (singleDom) singleDom.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+        const targetArea = romArea || (appData ? getRomAreaName() : '');
+        const areaMatch = perAreaChartInstances.find(item => item.areaName === targetArea);
+        if (areaMatch) {
+            areaMatch.instance.dispatchAction({
+                type: 'treemapZoomToNode',
+                targetNodeId: targetNodeId
+            });
+            if (areaMatch.cardDom) {
+                areaMatch.cardDom.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    }
+
+    if (ramChartInstance) {
+        let ramTargetNodeId = groupName;
+        if (activeGroupingMode === 'folder' && folderPath) {
+            ramTargetNodeId = folderPath.split('/')[0];
+        } else if (activeGroupingMode === 'none') {
+            ramTargetNodeId = moduleName;
+        }
+        ramChartInstance.dispatchAction({
+            type: 'treemapZoomToNode',
+            targetNodeId: ramTargetNodeId
+        });
+    }
 }
+
 
