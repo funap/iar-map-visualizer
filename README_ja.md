@@ -2,6 +2,8 @@
 
 [English](README.md) | 日本語
 
+**🚀 Web版 (Live Demo)**: [https://funap.github.io/iar-map-visualizer/](https://funap.github.io/iar-map-visualizer/)
+
 IAR Embedded Workbench for ARM (EWARM) のリンカーマップファイル (.map) およびプロジェクトファイル (.ewp) を解析し、ROM (RO Code / RO Data) および RAM (RW Data) のメモリ使用量を視覚的に分析するためのWebツールです。
 
 ## 概要
@@ -31,7 +33,7 @@ IAR Embedded Workbench for ARM (EWARM) のリンカーマップファイル (.ma
 
 ## 使い方
 
-1. ブラウザで index.html を開くか、Web版にアクセスします。
+1. [Web版](https://funap.github.io/iar-map-visualizer/) にアクセスするか、ローカルで `index.html` をブラウザで開きます。
 2. ドラッグ＆ドロップエリアに EWARM の .map ファイルおよび .ewp ファイルを読み込ませます（複数ファイルの同時ドロップにも対応しています）。
 3. 画面上のTreeMapで視覚的にメモリ占有率を確認します。「EWARM Folders」と「Library / Group」のボタンで表示単位を変更できます。
 4. サイドバーでターゲットマイコンのFlash容量を設定すると、使用率メーターが更新されます。

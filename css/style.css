@@ -125,9 +125,10 @@ header {
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+    text-decoration: none;
     transition: var(--transition-smooth);
 }
 

@@ -2,6 +2,8 @@
 
 English | [日本語](README_ja.md)
 
+**🚀 Live Demo**: [https://funap.github.io/iar-map-visualizer/](https://funap.github.io/iar-map-visualizer/)
+
 A web-based tool designed to parse linker map files (.map) and project files (.ewp) from IAR Embedded Workbench for ARM (EWARM), visually analyzing ROM (RO Code / RO Data) and RAM (RW Data) memory consumption.
 
 ## Overview
@@ -30,7 +32,7 @@ In embedded system development, this tool provides an intuitive way to understan
 
 ## Usage
 
-1. Open index.html in a web browser or access the web version.
+1. Open the [Live Web App](https://funap.github.io/iar-map-visualizer/) or open `index.html` locally in a web browser.
 2. Drag and drop your EWARM .map and .ewp files into the dropzone (multiple files can be dropped simultaneously).
 3. Analyze memory distribution in the Treemap view. Use the EWARM Folders and Library / Group buttons to switch grouping views.
 4. Set your target microcontroller Flash capacity in the sidebar to update the progress meter.
