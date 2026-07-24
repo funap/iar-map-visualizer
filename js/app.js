@@ -228,13 +228,56 @@ function initDOM() {
     });
 }
 
+let chartResizeObserver = null;
+
+function setupResizeObserver() {
+    if (typeof ResizeObserver === 'undefined') return;
+
+    chartResizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+            if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+                if (entry.target.id === 'treemap-chart') {
+                    if (!chartInstance && appData) {
+                        chartInstance = echarts.init(entry.target, 'dark', { renderer: 'canvas' });
+                        chartInstance.setOption(renderTreemapOption(getChartData()), true);
+                    }
+                    if (chartInstance) chartInstance.resize();
+                } else if (entry.target.id === 'ram-treemap-chart') {
+                    if (!ramChartInstance && appData) {
+                        ramChartInstance = echarts.init(entry.target, 'dark', { renderer: 'canvas' });
+                        ramChartInstance.setOption(renderRamTreemapOption(getRamChartData()), true);
+                    }
+                    if (ramChartInstance) ramChartInstance.resize();
+                } else {
+                    const areaItem = perAreaChartInstances.find(item => item.dom === entry.target);
+                    if (areaItem && areaItem.instance) {
+                        areaItem.instance.resize();
+                    }
+                    const ramAreaItem = perRamAreaChartInstances.find(item => item.dom === entry.target);
+                    if (ramAreaItem && ramAreaItem.instance) {
+                        ramAreaItem.instance.resize();
+                    }
+                }
+            }
+        }
+    });
+
+    const romDom = document.getElementById('treemap-chart');
+    if (romDom) chartResizeObserver.observe(romDom);
+
+    const ramDom = document.getElementById('ram-treemap-chart');
+    if (ramDom) chartResizeObserver.observe(ramDom);
+}
+
 function initChart() {
+    setupResizeObserver();
+    
     const chartDom = document.getElementById('treemap-chart');
-    if (chartDom) {
+    if (chartDom && chartDom.clientWidth > 0 && chartDom.clientHeight > 0) {
         chartInstance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
     }
     const ramChartDom = document.getElementById('ram-treemap-chart');
-    if (ramChartDom) {
+    if (ramChartDom && ramChartDom.clientWidth > 0 && ramChartDom.clientHeight > 0) {
         ramChartInstance = echarts.init(ramChartDom, 'dark', { renderer: 'canvas' });
     }
 }
@@ -548,21 +591,26 @@ function onDataLoaded() {
     document.getElementById('welcome-card').classList.add('hidden');
     document.getElementById('main-dashboard').classList.remove('hidden');
     
-    setTimeout(() => {
-        if (chartInstance) {
-            chartInstance.resize();
-        }
-        if (ramChartInstance) {
-            ramChartInstance.resize();
-        }
-    }, 50);
-    
     updateKPIs();
     updateBudgetMeter();
     drawTreemap();
     drawRamTreemap();
     updateSortHeaders();
     renderTable();
+
+    requestAnimationFrame(() => {
+        if (chartInstance) chartInstance.resize();
+        if (ramChartInstance) ramChartInstance.resize();
+        perAreaChartInstances.forEach(item => { if (item.instance) item.instance.resize(); });
+        perRamAreaChartInstances.forEach(item => { if (item.instance) item.instance.resize(); });
+
+        setTimeout(() => {
+            if (chartInstance) chartInstance.resize();
+            if (ramChartInstance) ramChartInstance.resize();
+            perAreaChartInstances.forEach(item => { if (item.instance) item.instance.resize(); });
+            perRamAreaChartInstances.forEach(item => { if (item.instance) item.instance.resize(); });
+        }, 150);
+    });
     
     const panels = document.querySelectorAll('.animate-fade-in');
     panels.forEach(p => {
@@ -643,6 +691,9 @@ function getDistinctRamAreas() {
 
 function disposePerRamAreaCharts() {
     perRamAreaChartInstances.forEach(item => {
+        if (chartResizeObserver && item.dom) {
+            chartResizeObserver.unobserve(item.dom);
+        }
         if (item.instance) {
             item.instance.dispose();
         }
@@ -652,6 +703,9 @@ function disposePerRamAreaCharts() {
 
 function disposePerAreaCharts() {
     perAreaChartInstances.forEach(item => {
+        if (chartResizeObserver && item.dom) {
+            chartResizeObserver.unobserve(item.dom);
+        }
         if (item.instance) {
             item.instance.dispose();
         }
@@ -826,12 +880,13 @@ function drawTreemap() {
         if (multiContainer) multiContainer.classList.add('hidden');
         disposePerAreaCharts();
 
-        if (!chartInstance && singleContainer) {
+        if (!chartInstance && singleContainer && singleContainer.clientWidth > 0) {
             chartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
         }
         if (chartInstance) {
             const data = getChartData();
             chartInstance.setOption(renderTreemapOption(data), true);
+            chartInstance.resize();
         }
     } else {
         if (singleContainer) singleContainer.classList.add('hidden');
@@ -891,6 +946,7 @@ function drawTreemap() {
             const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
             instance.setOption(renderTreemapOption(areaTreeData), true);
             perAreaChartInstances.push({ areaName, instance, dom: chartDom, cardDom: card });
+            if (chartResizeObserver) chartResizeObserver.observe(chartDom);
         });
 
         if (typeof lucide !== 'undefined' && lucide.createIcons) {
@@ -1059,12 +1115,13 @@ function drawRamTreemap() {
         if (multiContainer) multiContainer.classList.add('hidden');
         disposePerRamAreaCharts();
 
-        if (!ramChartInstance && singleContainer) {
+        if (!ramChartInstance && singleContainer && singleContainer.clientWidth > 0) {
             ramChartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
         }
         if (ramChartInstance) {
             const data = getRamChartData();
             ramChartInstance.setOption(renderRamTreemapOption(data), true);
+            ramChartInstance.resize();
         }
     } else {
         if (singleContainer) singleContainer.classList.add('hidden');
@@ -1126,6 +1183,7 @@ function drawRamTreemap() {
             const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
             instance.setOption(renderRamTreemapOption(areaTreeData), true);
             perRamAreaChartInstances.push({ areaName, instance, dom: chartDom, cardDom: card });
+            if (chartResizeObserver) chartResizeObserver.observe(chartDom);
         });
 
         if (typeof lucide !== 'undefined' && lucide.createIcons) {
