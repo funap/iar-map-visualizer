@@ -226,7 +226,7 @@ function parseMapFile(text) {
                 for (let j = 1; j < columnSpans.length; j++) {
                     const start = columnSpans[j].start;
                     const end = (j + 1 < columnSpans.length) ? columnSpans[j+1].start : line.length;
-                    const colValStr = line.substring(start, end).trim().replace(/[,']/g, "");
+                    const colValStr = line.substring(start, end).replace(/[\s,']/g, "");
                     const val = parseInt(colValStr, 10) || 0;
                     
                     const headerKey = headers[j - 1];
@@ -270,7 +270,7 @@ function parseMapFile(text) {
                         continue;
                     }
                     
-                    const numbers = numbersStr.split(/\s+/).map(n => parseInt(n.replace(/[,']/g, ""), 10) || 0);
+                    const numbers = numbersStr.split(/\s{2,}/).map(n => parseInt(n.replace(/[\s,']/g, ""), 10) || 0);
                     
                     const moduleData = {
                         name: cleanedName,
