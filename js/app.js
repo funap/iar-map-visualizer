@@ -3,6 +3,8 @@ let appData = null; // Parsed map data { groups, totals }
 let ewpData = null; // Parsed ewp project data { rootGroups, rootFiles, fileMap }
 let activeGroupingMode = 'library'; // 'none' | 'library' | 'folder'
 let activeRomAreaDisplayMode = 'single'; // 'single' | 'perArea'
+let activeRamGroupingMode = 'library'; // 'none' | 'library' | 'folder'
+let activeRamAreaDisplayMode = 'single'; // 'single' | 'perArea'
 let mapFileName = '';
 let ewpFileName = '';
 let activeSortColumn = 'romSize';
@@ -12,6 +14,7 @@ let targetFlashBytes = 256 * 1024; // Default 256KB
 let chartInstance = null;
 let perAreaChartInstances = []; // [{ areaName, instance, dom, cardDom }]
 let ramChartInstance = null;
+let perRamAreaChartInstances = []; // [{ areaName, instance, dom, cardDom }]
 
 // Color Palette for Libraries and Top Folders (ROM Treemap)
 const PALETTE = [
@@ -74,6 +77,38 @@ function initDOM() {
         btnAreaPerArea.addEventListener('click', () => setRomAreaDisplayMode('perArea'));
     }
 
+    // RAM Grouping mode buttons
+    const btnRamGroupNone = document.getElementById('ram-group-mode-none');
+    const btnRamGroupLibrary = document.getElementById('ram-group-mode-library');
+    const btnRamGroupFolder = document.getElementById('ram-group-mode-folder');
+    
+    if (btnRamGroupNone) {
+        btnRamGroupNone.addEventListener('click', () => setRamGroupingMode('none'));
+    }
+    if (btnRamGroupLibrary) {
+        btnRamGroupLibrary.addEventListener('click', () => setRamGroupingMode('library'));
+    }
+    if (btnRamGroupFolder) {
+        btnRamGroupFolder.addEventListener('click', () => {
+            if (!ewpData) {
+                if (ewpFileInput) ewpFileInput.click();
+                return;
+            }
+            setRamGroupingMode('folder');
+        });
+    }
+
+    // RAM Area Display mode buttons
+    const btnRamAreaSingle = document.getElementById('ram-area-display-single');
+    const btnRamAreaPerArea = document.getElementById('ram-area-display-per-area');
+
+    if (btnRamAreaSingle) {
+        btnRamAreaSingle.addEventListener('click', () => setRamAreaDisplayMode('single'));
+    }
+    if (btnRamAreaPerArea) {
+        btnRamAreaPerArea.addEventListener('click', () => setRamAreaDisplayMode('perArea'));
+    }
+
     // File inputs
     if (dropzone) dropzone.addEventListener('click', () => fileInput.click());
     if (fileInput) fileInput.addEventListener('change', (e) => processFileList(e.target.files));
@@ -90,6 +125,7 @@ function initDOM() {
             readEwpFile(ewpFile, () => {
                 if (appData) {
                     setGroupingMode('folder');
+                    setRamGroupingMode('folder');
                 }
             });
         });
@@ -186,6 +222,9 @@ function initDOM() {
         if (ramChartInstance) {
             ramChartInstance.resize();
         }
+        perRamAreaChartInstances.forEach(item => {
+            if (item.instance) item.instance.resize();
+        });
     });
 }
 
@@ -310,6 +349,34 @@ function setRomAreaDisplayMode(mode) {
     if (appData) {
         drawTreemap();
         renderTable();
+    }
+}
+
+function setRamGroupingMode(mode) {
+    activeRamGroupingMode = mode;
+    const btnNone = document.getElementById('ram-group-mode-none');
+    const btnLib = document.getElementById('ram-group-mode-library');
+    const btnFold = document.getElementById('ram-group-mode-folder');
+    
+    if (btnNone) btnNone.classList.toggle('active', mode === 'none');
+    if (btnLib) btnLib.classList.toggle('active', mode === 'library');
+    if (btnFold) btnFold.classList.toggle('active', mode === 'folder');
+
+    if (appData) {
+        drawRamTreemap();
+    }
+}
+
+function setRamAreaDisplayMode(mode) {
+    activeRamAreaDisplayMode = mode;
+    const btnSingle = document.getElementById('ram-area-display-single');
+    const btnPerArea = document.getElementById('ram-area-display-per-area');
+    
+    if (btnSingle) btnSingle.classList.toggle('active', mode === 'single');
+    if (btnPerArea) btnPerArea.classList.toggle('active', mode === 'perArea');
+
+    if (appData) {
+        drawRamTreemap();
     }
 }
 
@@ -461,6 +528,7 @@ async function loadSampleData() {
         ewpFileName = 'sample.ewp';
         updateFileBadges();
         setGroupingMode('folder');
+        setRamGroupingMode('folder');
         onDataLoaded();
     } catch (err) {
         console.warn('Fetch failed, using built-in fallback sample data:', err);
@@ -470,6 +538,7 @@ async function loadSampleData() {
         ewpFileName = 'sample.ewp';
         updateFileBadges();
         setGroupingMode('folder');
+        setRamGroupingMode('folder');
         onDataLoaded();
     }
 }
@@ -557,6 +626,28 @@ function getDistinctRomAreas() {
         });
     }
     return Array.from(areasSet).sort();
+}
+
+function getDistinctRamAreas() {
+    if (!appData) return [];
+    const areasSet = new Set();
+    for (const grpName in appData.groups) {
+        appData.groups[grpName].modules.forEach(m => {
+            if (m.rwData > 0) {
+                areasSet.add(m.ramArea || m.romArea || getRomAreaName(m.ramAddress || m.address));
+            }
+        });
+    }
+    return Array.from(areasSet).sort();
+}
+
+function disposePerRamAreaCharts() {
+    perRamAreaChartInstances.forEach(item => {
+        if (item.instance) {
+            item.instance.dispose();
+        }
+    });
+    perRamAreaChartInstances = [];
 }
 
 function disposePerAreaCharts() {
@@ -811,7 +902,7 @@ function drawTreemap() {
 // Prepare hierarchical ECharts structure for RAM (RW Data)
 function getRamChartData() {
     if (!appData) return [];
-    const treeNodes = buildModuleTree(appData, ewpData, activeGroupingMode, 'ram', null);
+    const treeNodes = buildModuleTree(appData, ewpData, activeRamGroupingMode, 'ram', null);
     treeNodes.forEach((node, idx) => {
         if (!node.itemStyle) {
             node.itemStyle = {
@@ -822,11 +913,8 @@ function getRamChartData() {
     return treeNodes;
 }
 
-function drawRamTreemap() {
-    if (!ramChartInstance) return;
-    const data = getRamChartData();
-    
-    const option = {
+function renderRamTreemapOption(data) {
+    return {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'item',
@@ -839,12 +927,12 @@ function drawRamTreemap() {
                 if (nodeData.roCode !== undefined) {
                     let groupLabel = 'Group/Library:';
                     let groupVal = nodeData.group || 'Unknown';
-                    if (activeGroupingMode === 'folder') {
+                    if (activeRamGroupingMode === 'folder') {
                         groupLabel = 'EWARM Folder:';
                         groupVal = nodeData.folderPath || groupVal;
-                    } else if (activeGroupingMode === 'none') {
-                        groupLabel = 'ROM Area:';
-                        groupVal = nodeData.romArea || 'Unknown';
+                    } else if (activeRamGroupingMode === 'none') {
+                        groupLabel = 'RAM Area:';
+                        groupVal = nodeData.ramArea || nodeData.romArea || 'Unknown';
                     }
 
                     return `
@@ -870,7 +958,7 @@ function drawRamTreemap() {
                     `;
                 } else {
                     let catLabel = 'Group:';
-                    if (activeGroupingMode === 'folder') catLabel = 'Folder:';
+                    if (activeRamGroupingMode === 'folder') catLabel = 'Folder:';
 
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
@@ -960,8 +1048,90 @@ function drawRamTreemap() {
             }
         }]
     };
-    
-    ramChartInstance.setOption(option, true);
+}
+
+function drawRamTreemap() {
+    const singleContainer = document.getElementById('ram-treemap-chart');
+    const multiContainer = document.getElementById('ram-area-treemaps-container');
+
+    if (activeRamAreaDisplayMode === 'single') {
+        if (singleContainer) singleContainer.classList.remove('hidden');
+        if (multiContainer) multiContainer.classList.add('hidden');
+        disposePerRamAreaCharts();
+
+        if (!ramChartInstance && singleContainer) {
+            ramChartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
+        }
+        if (ramChartInstance) {
+            const data = getRamChartData();
+            ramChartInstance.setOption(renderRamTreemapOption(data), true);
+        }
+    } else {
+        if (singleContainer) singleContainer.classList.add('hidden');
+        if (multiContainer) multiContainer.classList.remove('hidden');
+        disposePerRamAreaCharts();
+
+        if (!multiContainer || !appData) return;
+        multiContainer.innerHTML = '';
+
+        const ramAreas = getDistinctRamAreas();
+        let colorIdx = 0;
+
+        ramAreas.forEach((areaName, index) => {
+            const areaTreeData = buildModuleTree(appData, ewpData, activeRamGroupingMode, 'ram', areaName);
+            if (areaTreeData.length === 0) return;
+
+            let areaSum = 0;
+            const calcSum = (nodes) => {
+                nodes.forEach(n => {
+                    if (n.children && n.children.length > 0) calcSum(n.children);
+                    else areaSum += (n.value || 0);
+                });
+            };
+            calcSum(areaTreeData);
+
+            const card = document.createElement('div');
+            card.className = 'rom-area-card';
+            card.id = `ram-area-card-${index}`;
+
+            const header = document.createElement('div');
+            header.className = 'rom-area-card-header';
+            header.innerHTML = `
+                <div class="rom-area-title" style="color: var(--color-success);">
+                    <i data-lucide="layers" style="width: 16px; height: 16px; stroke: var(--color-success);"></i>
+                    ${areaName}
+                </div>
+                <div class="rom-area-size" style="color: var(--color-success); background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2);">
+                    ${formatBytes(areaSum)}
+                </div>
+            `;
+
+            const chartDom = document.createElement('div');
+            chartDom.className = 'rom-area-chart';
+            chartDom.id = `ram-area-chart-${index}`;
+
+            card.appendChild(header);
+            card.appendChild(chartDom);
+            multiContainer.appendChild(card);
+
+            const color = RAM_PALETTE[colorIdx % RAM_PALETTE.length];
+            colorIdx++;
+
+            areaTreeData.forEach(n => {
+                if (!n.itemStyle) {
+                    n.itemStyle = { color: color };
+                }
+            });
+
+            const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+            instance.setOption(renderRamTreemapOption(areaTreeData), true);
+            perRamAreaChartInstances.push({ areaName, instance, dom: chartDom, cardDom: card });
+        });
+
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    }
 }
 
 // Flat list of modules for sorting and rendering in table
@@ -1106,17 +1276,37 @@ function zoomToModuleInChart(groupName, folderPath, moduleName, romArea) {
         }
     }
 
-    if (ramChartInstance) {
-        let ramTargetNodeId = groupName;
-        if (activeGroupingMode === 'folder' && folderPath) {
-            ramTargetNodeId = folderPath.split('/')[0];
-        } else if (activeGroupingMode === 'none') {
-            ramTargetNodeId = moduleName;
+    if (activeRamAreaDisplayMode === 'single') {
+        if (ramChartInstance) {
+            let ramTargetNodeId = groupName;
+            if (activeRamGroupingMode === 'folder' && folderPath) {
+                ramTargetNodeId = folderPath.split('/')[0];
+            } else if (activeRamGroupingMode === 'none') {
+                ramTargetNodeId = moduleName;
+            }
+            ramChartInstance.dispatchAction({
+                type: 'treemapZoomToNode',
+                targetNodeId: ramTargetNodeId
+            });
         }
-        ramChartInstance.dispatchAction({
-            type: 'treemapZoomToNode',
-            targetNodeId: ramTargetNodeId
-        });
+    } else {
+        const targetArea = romArea || (appData ? getRomAreaName() : '');
+        const areaMatch = perRamAreaChartInstances.find(item => item.areaName === targetArea);
+        if (areaMatch) {
+            let ramTargetNodeId = groupName;
+            if (activeRamGroupingMode === 'folder' && folderPath) {
+                ramTargetNodeId = folderPath.split('/')[0];
+            } else if (activeRamGroupingMode === 'none') {
+                ramTargetNodeId = moduleName;
+            }
+            areaMatch.instance.dispatchAction({
+                type: 'treemapZoomToNode',
+                targetNodeId: ramTargetNodeId
+            });
+            if (areaMatch.cardDom) {
+                areaMatch.cardDom.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
     }
 }
 

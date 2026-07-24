@@ -13,13 +13,13 @@ In embedded system development, this tool provides an intuitive way to understan
 ## Key Features
 
 - Interactive Treemap Visualization
-  Visualizes memory consumption for modules and libraries proportionally by area. Supports click-to-drill-down and hierarchical navigation.
+  Visualizes memory consumption for modules and libraries proportionally by area. Supports click-to-drill-down and hierarchical navigation for both ROM and RAM.
 
-- EWARM Virtual Folder Support
-  Loading an .ewp project file alongside the .map file enables grouping by your IDE virtual project folder structure.
+- EWARM Virtual Folder Support & Flexible Grouping
+  Supports independent grouping by build output (libraries), EWARM project virtual folders (.ewp), or no grouping for both ROM and RAM treemaps.
 
-- Flexible Grouping Modes
-  Switch between build output grouping (libraries and modules) and EWARM project folder grouping with a single click.
+- Memory Area Segmentation (ROM & RAM Areas)
+  Toggle between a single consolidated treemap or separate treemaps split by memory areas (e.g. Internal Flash, SRAM, QSPI/OSPI, SDRAM) for both ROM and RAM.
 
 - Flash Memory Budget Tracking
   Specify your target microcontroller Flash capacity (in KB or MB) to view real-time utilization percentages and remaining memory gauges.

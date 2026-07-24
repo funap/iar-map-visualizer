@@ -137,7 +137,8 @@ function parseMapFile(text) {
     let totalRwData = 0;
 
     // Build module to address mapping from PLACEMENT SUMMARY or SECTION PLACEMENT
-    const moduleAddressMap = new Map();
+    const moduleRomAddressMap = new Map();
+    const moduleRamAddressMap = new Map();
     lines.forEach(line => {
         const trimmed = line.trim();
         // Look for lines containing addresses (0x08000000, 0x90000000, etc.) and module object names (.o)
@@ -154,8 +155,16 @@ function parseMapFile(text) {
             }
             const addrVal = parseInt(hexStr, 16);
             if (!isNaN(addrVal)) {
-                if (!moduleAddressMap.has(modName) || addrVal < moduleAddressMap.get(modName)) {
-                    moduleAddressMap.set(modName, addrVal);
+                const lowerLine = trimmed.toLowerCase();
+                const isRamSection = lowerLine.includes('inited') || lowerLine.includes('zero') || lowerLine.includes('.data') || lowerLine.includes('.bss') || (addrVal >= 0x20000000 && addrVal < 0x80000000);
+                if (isRamSection) {
+                    if (!moduleRamAddressMap.has(modName) || addrVal < moduleRamAddressMap.get(modName)) {
+                        moduleRamAddressMap.set(modName, addrVal);
+                    }
+                } else {
+                    if (!moduleRomAddressMap.has(modName) || addrVal < moduleRomAddressMap.get(modName)) {
+                        moduleRomAddressMap.set(modName, addrVal);
+                    }
                 }
             }
         }
@@ -237,11 +246,14 @@ function parseMapFile(text) {
                 
                 moduleData.romSize = moduleData.roCode + moduleData.roData;
                 
-                // Assign Address and ROM Area
+                // Assign Address and ROM/RAM Area
                 const lowerObjName = cleanedName.toLowerCase();
-                const matchedAddr = moduleAddressMap.get(lowerObjName);
-                moduleData.address = matchedAddr !== undefined ? matchedAddr : 0x08000000;
+                const matchedRomAddr = moduleRomAddressMap.get(lowerObjName);
+                const matchedRamAddr = moduleRamAddressMap.get(lowerObjName);
+                moduleData.address = matchedRomAddr !== undefined ? matchedRomAddr : 0x08000000;
+                moduleData.ramAddress = matchedRamAddr !== undefined ? matchedRamAddr : 0x20000000;
                 moduleData.romArea = getRomAreaName(moduleData.address);
+                moduleData.ramArea = getRomAreaName(moduleData.ramAddress);
 
                 // Only include if it has non-zero memory consumption
                 if (moduleData.romSize > 0 || moduleData.rwData > 0) {
@@ -295,11 +307,14 @@ function parseMapFile(text) {
                     
                     moduleData.romSize = moduleData.roCode + moduleData.roData;
                     
-                    // Assign Address and ROM Area
+                    // Assign Address and ROM/RAM Area
                     const lowerObjName = cleanedName.toLowerCase();
-                    const matchedAddr = moduleAddressMap.get(lowerObjName);
-                    moduleData.address = matchedAddr !== undefined ? matchedAddr : 0x08000000;
+                    const matchedRomAddr = moduleRomAddressMap.get(lowerObjName);
+                    const matchedRamAddr = moduleRamAddressMap.get(lowerObjName);
+                    moduleData.address = matchedRomAddr !== undefined ? matchedRomAddr : 0x08000000;
+                    moduleData.ramAddress = matchedRamAddr !== undefined ? matchedRamAddr : 0x20000000;
                     moduleData.romArea = getRomAreaName(moduleData.address);
+                    moduleData.ramArea = getRomAreaName(moduleData.ramAddress);
 
                     if (moduleData.romSize > 0 || moduleData.rwData > 0) {
                         if (!groups[currentGroup]) {
@@ -744,7 +759,8 @@ function buildModuleTree(parsedMapData, parsedEwpData, groupingMode = 'library',
     for (const grpName in parsedMapData.groups) {
         const groupObj = parsedMapData.groups[grpName];
         groupObj.modules.forEach(m => {
-            if (targetRomArea && m.romArea !== targetRomArea) return;
+            const mArea = metric === 'ram' ? (m.ramArea || m.romArea) : m.romArea;
+            if (targetRomArea && mArea !== targetRomArea) return;
 
             const mSize = metric === 'ram' ? m.rwData : m.romSize;
             if (mSize <= 0) return;
@@ -786,6 +802,7 @@ function buildModuleTree(parsedMapData, parsedEwpData, groupingMode = 'library',
             ramPercentage: globalRamTotal > 0 ? (m.rwData / globalRamTotal) * 100 : 0,
             group: m.group,
             romArea: m.romArea,
+            ramArea: m.ramArea || m.romArea,
             folderPath: m.folderPath
         };
     }
