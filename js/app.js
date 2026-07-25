@@ -15,23 +15,14 @@ let chartInstance = null;
 let perAreaChartInstances = []; // [{ areaName, instance, dom, cardDom }]
 let ramChartInstance = null;
 let perRamAreaChartInstances = []; // [{ areaName, instance, dom, cardDom }]
-
-// Color Palette for Libraries and Top Folders (ROM Treemap)
-const PALETTE = [
-    '#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b',
-    '#06b6d4', '#14b8a6', '#f43f5e', '#a855f7', '#3b82f6'
-];
-
-// Color Palette for RAM Treemap (Emerald/Teal Theme)
-const RAM_PALETTE = [
-    '#10b981', '#14b8a6', '#06b6d4', '#22c55e', '#84cc16',
-    '#059669', '#0d9488', '#0891b2', '#16a34a', '#34d399'
-];
+let chartResizeObserver = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     initDOM();
     initChart();
-    lucide.createIcons();
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+        lucide.createIcons();
+    }
 });
 
 function initDOM() {
@@ -45,17 +36,13 @@ function initDOM() {
     const flashBudgetUnit = document.getElementById('flash-budget-unit');
     const searchInput = document.getElementById('search-input');
     
-    // Grouping mode buttons
+    // ROM Grouping mode buttons
     const btnGroupNone = document.getElementById('group-mode-none');
     const btnGroupLibrary = document.getElementById('group-mode-library');
     const btnGroupFolder = document.getElementById('group-mode-folder');
     
-    if (btnGroupNone) {
-        btnGroupNone.addEventListener('click', () => setGroupingMode('none'));
-    }
-    if (btnGroupLibrary) {
-        btnGroupLibrary.addEventListener('click', () => setGroupingMode('library'));
-    }
+    if (btnGroupNone) btnGroupNone.addEventListener('click', () => setGroupingMode('none'));
+    if (btnGroupLibrary) btnGroupLibrary.addEventListener('click', () => setGroupingMode('library'));
     if (btnGroupFolder) {
         btnGroupFolder.addEventListener('click', () => {
             if (!ewpData) {
@@ -70,24 +57,16 @@ function initDOM() {
     const btnAreaSingle = document.getElementById('area-display-single');
     const btnAreaPerArea = document.getElementById('area-display-per-area');
 
-    if (btnAreaSingle) {
-        btnAreaSingle.addEventListener('click', () => setRomAreaDisplayMode('single'));
-    }
-    if (btnAreaPerArea) {
-        btnAreaPerArea.addEventListener('click', () => setRomAreaDisplayMode('perArea'));
-    }
+    if (btnAreaSingle) btnAreaSingle.addEventListener('click', () => setRomAreaDisplayMode('single'));
+    if (btnAreaPerArea) btnAreaPerArea.addEventListener('click', () => setRomAreaDisplayMode('perArea'));
 
     // RAM Grouping mode buttons
     const btnRamGroupNone = document.getElementById('ram-group-mode-none');
     const btnRamGroupLibrary = document.getElementById('ram-group-mode-library');
     const btnRamGroupFolder = document.getElementById('ram-group-mode-folder');
     
-    if (btnRamGroupNone) {
-        btnRamGroupNone.addEventListener('click', () => setRamGroupingMode('none'));
-    }
-    if (btnRamGroupLibrary) {
-        btnRamGroupLibrary.addEventListener('click', () => setRamGroupingMode('library'));
-    }
+    if (btnRamGroupNone) btnRamGroupNone.addEventListener('click', () => setRamGroupingMode('none'));
+    if (btnRamGroupLibrary) btnRamGroupLibrary.addEventListener('click', () => setRamGroupingMode('library'));
     if (btnRamGroupFolder) {
         btnRamGroupFolder.addEventListener('click', () => {
             if (!ewpData) {
@@ -102,35 +81,41 @@ function initDOM() {
     const btnRamAreaSingle = document.getElementById('ram-area-display-single');
     const btnRamAreaPerArea = document.getElementById('ram-area-display-per-area');
 
-    if (btnRamAreaSingle) {
-        btnRamAreaSingle.addEventListener('click', () => setRamAreaDisplayMode('single'));
-    }
-    if (btnRamAreaPerArea) {
-        btnRamAreaPerArea.addEventListener('click', () => setRamAreaDisplayMode('perArea'));
-    }
+    if (btnRamAreaSingle) btnRamAreaSingle.addEventListener('click', () => setRamAreaDisplayMode('single'));
+    if (btnRamAreaPerArea) btnRamAreaPerArea.addEventListener('click', () => setRamAreaDisplayMode('perArea'));
 
     // File inputs
     if (dropzone) dropzone.addEventListener('click', () => fileInput.click());
     if (fileInput) fileInput.addEventListener('change', (e) => processFileList(e.target.files));
+    // Load .ewp File Button (Strictly accepts ONLY .ewp files)
+    if (uploadEwpBtn) {
+        uploadEwpBtn.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.ewp,.EWP';
+            input.onchange = (e) => {
+                const files = Array.from(e.target.files || []);
+                const ewpFile = files.find(f => f.name.toLowerCase().endsWith('.ewp'));
+                if (ewpFile) {
+                    loadEwpFileOnly(ewpFile);
+                } else if (files.length > 0) {
+                    alert('Only IAR project files (.ewp) can be selected here. .map files are ignored.');
+                }
+            };
+            input.click();
+        });
+    }
+
     if (ewpFileInput) {
         ewpFileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files || []);
             const ewpFile = files.find(f => f.name.toLowerCase().endsWith('.ewp'));
-            if (!ewpFile) {
-                if (files.length > 0) {
-                    alert('Please select an IAR project file (.ewp).');
-                }
-                return;
+            if (ewpFile) {
+                loadEwpFileOnly(ewpFile);
             }
-            readEwpFile(ewpFile, () => {
-                if (appData) {
-                    setGroupingMode('folder');
-                    setRamGroupingMode('folder');
-                }
-            });
+            e.target.value = '';
         });
     }
-    if (uploadEwpBtn) uploadEwpBtn.addEventListener('click', () => ewpFileInput.click());
 
     // Drag & Drop for Main Dropzone
     if (dropzone) {
@@ -173,7 +158,7 @@ function initDOM() {
         });
     }
     
-    // Load sample project data
+    // Load sample project data button
     if (loadSampleBtn) loadSampleBtn.addEventListener('click', loadSampleData);
     
     // Flash Budget Configurator
@@ -213,22 +198,12 @@ function initDOM() {
     
     // Handle Window Resize
     window.addEventListener('resize', () => {
-        if (chartInstance) {
-            chartInstance.resize();
-        }
-        perAreaChartInstances.forEach(item => {
-            if (item.instance) item.instance.resize();
-        });
-        if (ramChartInstance) {
-            ramChartInstance.resize();
-        }
-        perRamAreaChartInstances.forEach(item => {
-            if (item.instance) item.instance.resize();
-        });
+        if (chartInstance) chartInstance.resize();
+        perAreaChartInstances.forEach(item => { if (item.instance) item.instance.resize(); });
+        if (ramChartInstance) ramChartInstance.resize();
+        perRamAreaChartInstances.forEach(item => { if (item.instance) item.instance.resize(); });
     });
 }
-
-let chartResizeObserver = null;
 
 function setupResizeObserver() {
     if (typeof ResizeObserver === 'undefined') return;
@@ -239,24 +214,20 @@ function setupResizeObserver() {
                 if (entry.target.id === 'treemap-chart') {
                     if (!chartInstance && appData) {
                         chartInstance = echarts.init(entry.target, 'dark', { renderer: 'canvas' });
-                        chartInstance.setOption(renderTreemapOption(getChartData()), true);
+                        chartInstance.setOption(renderTreemapOption(getChartData('rom'), 'rom', activeGroupingMode), true);
                     }
                     if (chartInstance) chartInstance.resize();
                 } else if (entry.target.id === 'ram-treemap-chart') {
                     if (!ramChartInstance && appData) {
                         ramChartInstance = echarts.init(entry.target, 'dark', { renderer: 'canvas' });
-                        ramChartInstance.setOption(renderRamTreemapOption(getRamChartData()), true);
+                        ramChartInstance.setOption(renderTreemapOption(getChartData('ram'), 'ram', activeRamGroupingMode), true);
                     }
                     if (ramChartInstance) ramChartInstance.resize();
                 } else {
                     const areaItem = perAreaChartInstances.find(item => item.dom === entry.target);
-                    if (areaItem && areaItem.instance) {
-                        areaItem.instance.resize();
-                    }
+                    if (areaItem && areaItem.instance) areaItem.instance.resize();
                     const ramAreaItem = perRamAreaChartInstances.find(item => item.dom === entry.target);
-                    if (ramAreaItem && ramAreaItem.instance) {
-                        ramAreaItem.instance.resize();
-                    }
+                    if (ramAreaItem && ramAreaItem.instance) ramAreaItem.instance.resize();
                 }
             }
         }
@@ -300,23 +271,60 @@ function processFileList(files) {
     if (!files || files.length === 0) return;
     const fileArray = Array.from(files);
     
-    const ewpFiles = fileArray.filter(f => f.name.toLowerCase().endsWith('.ewp'));
-    const mapFiles = fileArray.filter(f => !f.name.toLowerCase().endsWith('.ewp'));
+    const ewpFile = fileArray.find(f => f.name.toLowerCase().endsWith('.ewp'));
+    const mapFile = fileArray.find(f => f.name.toLowerCase().endsWith('.map') || !f.name.toLowerCase().endsWith('.ewp'));
 
-    let pendingEwp = ewpFiles.length > 0 ? ewpFiles[0] : null;
-    let pendingMap = mapFiles.length > 0 ? mapFiles[0] : null;
-
-    if (pendingEwp) {
-        readEwpFile(pendingEwp, () => {
-            if (pendingMap) {
-                readMapFile(pendingMap);
-            } else if (appData) {
-                setGroupingMode('folder');
-            }
+    // Case 1: Both .ewp and .map dropped/selected simultaneously
+    if (ewpFile && mapFile) {
+        readEwpFile(ewpFile, () => {
+            readMapFile(mapFile);
         });
-    } else if (pendingMap) {
-        readMapFile(pendingMap);
+    } 
+    // Case 2: Only .ewp file dropped/selected
+    else if (ewpFile) {
+        readEwpFile(ewpFile, () => {
+            if (appData) {
+                setGroupingMode('folder');
+                setRamGroupingMode('folder');
+            }
+            // Prompt user to select .map file next
+            promptForMapFileAfterEwp();
+        });
+    } 
+    // Case 3: Only .map file dropped/selected
+    else if (mapFile) {
+        readMapFile(mapFile);
     }
+}
+
+/**
+ * Automatically triggers file selector to open .map file after .ewp file is loaded.
+ */
+function promptForMapFileAfterEwp() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.map,.MAP';
+    input.onchange = (e) => {
+        const files = Array.from(e.target.files || []);
+        const mapFile = files.find(f => f.name.toLowerCase().endsWith('.map') || !f.name.toLowerCase().endsWith('.ewp'));
+        if (mapFile) {
+            readMapFile(mapFile);
+        }
+    };
+    input.click();
+}
+
+/**
+ * Dedicated function to load and apply an IAR project (.ewp) file only.
+ * @param {File} file 
+ */
+function loadEwpFileOnly(file) {
+    readEwpFile(file, () => {
+        if (appData) {
+            setGroupingMode('folder');
+            setRamGroupingMode('folder');
+        }
+    });
 }
 
 function readEwpFile(file, callback) {
@@ -423,7 +431,6 @@ function setRamAreaDisplayMode(mode) {
     }
 }
 
-
 function updateFileBadges() {
     const mapBadge = document.getElementById('map-file-badge');
     const ewpBadge = document.getElementById('ewp-file-badge');
@@ -438,116 +445,6 @@ function updateFileBadges() {
         ewpBadge.title = ewpFileName;
     }
 }
-
-// Built-in fallback sample data
-const SAMPLE_MAP_FALLBACK = `###############################################################################
-#
-# IAR ELF Linker V8.50.1.245/W32 for ARM
-# Copyright 2007-2020 IAR Systems AB.
-#
-###############################################################################
-
-***************************************************************************
-*** PLACEMENT SUMMARY ***
-
-  "A1": place at address 0x08000000 { ro section .text, ro section .rodata };
-  "A2": place at address 0x90000000 { ro section .qspi_text, ro section .qspi_rodata };
-
-  Address       Size  Type    Object
-  0x08000000   0x1204  code    display.o
-  0x08001204   0x0936  code    main.o
-  0x08001b3a   0x0914  code    motor.o
-  0x0800244e   0x0450  code    sensor.o
-  0x0800289e   0x030c  code    utils.o
-  0x90000000  0x4500  code    wifi.o
-
-***************************************************************************
-*** MODULE SUMMARY ***
-
-Module                      ro code    ro data    rw data
-------                      -------    -------    -------
-command line/config:              4          0          0
----------------------------------------------------------------------------
-Total:                            4          0          0
-
-C:\\Projects\\EmbeddedApp\\Debug\\Obj: [1]
-  display.o                   4,612     12,864         64
-  main.o                      2,358        288         16
-  motor.o                     2,320         12          4
-  sensor.o                    1,104         48          8
-  utils.o                       780         24          0
-  wifi.o                     17,664      4,800        256
----------------------------------------------------------------------------
-Total:                       28,838     18,036        348
-
-rt7M_tl.a: [2]
-  aeabi_readwrite.o              24          0          0
-  memcpy.o                       88          0          0
-  memset.o                       44          0          0
-  rt_toc.o                      120          8          0
----------------------------------------------------------------------------
-Total:                          276          8          0
-
-m7M_tls.a: [3]
-  addsub.o                      416          0          0
-  fpinit.o                       64          0          0
-  muldiv.o                      544          0          0
----------------------------------------------------------------------------
-Total:                        1,024          0          0
-
-dl7M_tln.a: [4]
-  abort.o                         8          0          0
-  exit.o                         12          4          0
-  xpnd.o                        140          0          0
-  yvals.o                         0         44          0
----------------------------------------------------------------------------
-Total:                          160         48          0
-
-Linker created:
-  initializer bytes               0        348          0
-  vtable                          0        128          0
----------------------------------------------------------------------------
-Total:                            0        476          0
-
-Grand Total:                 30,302     18,568        348`;
-
-const SAMPLE_EWP_FALLBACK = `<?xml version="1.0" encoding="iso-8859-1"?>
-<project>
-  <fileVersion>3</fileVersion>
-  <configuration>
-    <name>Debug</name>
-  </configuration>
-  <group>
-    <name>Application</name>
-    <group>
-      <name>UI</name>
-      <file>
-        <name>$PROJ_DIR$\\display.c</name>
-      </file>
-    </group>
-    <file>
-      <name>$PROJ_DIR$\\main.c</name>
-    </file>
-    <file>
-      <name>$PROJ_DIR$\\utils.c</name>
-    </file>
-  </group>
-  <group>
-    <name>Drivers</name>
-    <file>
-      <name>$PROJ_DIR$\\motor.c</name>
-    </file>
-    <file>
-      <name>$PROJ_DIR$\\sensor.c</name>
-    </file>
-  </group>
-  <group>
-    <name>Connectivity</name>
-    <file>
-      <name>$PROJ_DIR$\\wifi.c</name>
-    </file>
-  </group>
-</project>`;
 
 // Fetch and load sample data (.map and .ewp)
 async function loadSampleData() {
@@ -663,533 +560,165 @@ function updateBudgetMeter() {
     document.getElementById('budget-fraction').innerText = `${formatBytes(romSize)} / ${formatBytes(targetFlashBytes)}`;
 }
 
-function getDistinctRomAreas() {
+function getDistinctAreas(metric = 'rom') {
     if (!appData) return [];
     const areasSet = new Set();
     for (const grpName in appData.groups) {
         appData.groups[grpName].modules.forEach(m => {
-            if (m.romSize > 0) {
-                areasSet.add(m.romArea || getRomAreaName(m.address));
+            const mSize = metric === 'ram' ? m.rwData : m.romSize;
+            if (mSize > 0) {
+                const area = metric === 'ram' 
+                    ? (m.ramArea || m.romArea || getRomAreaName(m.ramAddress || m.address))
+                    : (m.romArea || getRomAreaName(m.address));
+                areasSet.add(area);
             }
         });
     }
     return Array.from(areasSet).sort();
 }
 
-function getDistinctRamAreas() {
+function getChartData(metric = 'rom') {
     if (!appData) return [];
-    const areasSet = new Set();
-    for (const grpName in appData.groups) {
-        appData.groups[grpName].modules.forEach(m => {
-            if (m.rwData > 0) {
-                areasSet.add(m.ramArea || m.romArea || getRomAreaName(m.ramAddress || m.address));
-            }
-        });
-    }
-    return Array.from(areasSet).sort();
-}
-
-function disposePerRamAreaCharts() {
-    perRamAreaChartInstances.forEach(item => {
-        if (chartResizeObserver && item.dom) {
-            chartResizeObserver.unobserve(item.dom);
-        }
-        if (item.instance) {
-            item.instance.dispose();
-        }
-    });
-    perRamAreaChartInstances = [];
-}
-
-function disposePerAreaCharts() {
-    perAreaChartInstances.forEach(item => {
-        if (chartResizeObserver && item.dom) {
-            chartResizeObserver.unobserve(item.dom);
-        }
-        if (item.instance) {
-            item.instance.dispose();
-        }
-    });
-    perAreaChartInstances = [];
-}
-
-function getChartData() {
-    if (!appData) return [];
-    const treeNodes = buildModuleTree(appData, ewpData, activeGroupingMode, 'rom', null);
+    const grouping = metric === 'ram' ? activeRamGroupingMode : activeGroupingMode;
+    const treeNodes = buildModuleTree(appData, ewpData, grouping, metric, null);
+    const palette = metric === 'ram' ? RAM_PALETTE : ROM_PALETTE;
+    
     treeNodes.forEach((node, idx) => {
         if (!node.itemStyle) {
             node.itemStyle = {
-                color: PALETTE[idx % PALETTE.length]
+                color: palette[idx % palette.length]
             };
         }
     });
     return treeNodes;
 }
 
-function renderTreemapOption(data) {
-    return {
-        backgroundColor: 'transparent',
-        tooltip: {
-            trigger: 'item',
-            formatter: function (info) {
-                const nodeData = info.data;
-                if (!nodeData) return info.name;
-                
-                const percentText = (nodeData.romPercentage || nodeData.percentage || 0).toFixed(2);
-                
-                if (nodeData.roCode !== undefined) {
-                    let groupLabel = 'Group/Library:';
-                    let groupVal = nodeData.group || 'Unknown';
-                    if (activeGroupingMode === 'folder') {
-                        groupLabel = 'EWARM Folder:';
-                        groupVal = nodeData.folderPath || groupVal;
-                    } else if (activeGroupingMode === 'none') {
-                        groupLabel = 'ROM Area:';
-                        groupVal = nodeData.romArea || 'Unknown';
-                    }
+// Unified renderer for ROM & RAM Treemaps
+function drawTreemapView(metric = 'rom') {
+    const isRam = metric === 'ram';
+    const singleContainer = document.getElementById(isRam ? 'ram-treemap-chart' : 'treemap-chart');
+    const multiContainer = document.getElementById(isRam ? 'ram-area-treemaps-container' : 'rom-area-treemaps-container');
+    const displayMode = isRam ? activeRamAreaDisplayMode : activeRomAreaDisplayMode;
+    const groupingMode = isRam ? activeRamGroupingMode : activeGroupingMode;
 
-                    return `
-                        <div style="font-family: Inter, sans-serif; padding: 4px;">
-                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">${groupLabel}</span>
-                                <span style="font-weight: 500; color: #fff;">${groupVal}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Total ROM:</span>
-                                <span style="font-weight: 600; color: #a78bfa;">${formatBytes(nodeData.romSize)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px; padding-left: 8px;">
-                                <span style="color: #64748b;">↳ RO Code:</span>
-                                <span style="font-weight: 500; color: #f8fafc;">${formatBytes(nodeData.roCode)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 6px; padding-left: 8px;">
-                                <span style="color: #64748b;">↳ RO Data:</span>
-                                <span style="font-weight: 500; color: #f8fafc;">${formatBytes(nodeData.roData)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">RAM (RW Data):</span>
-                                <span style="font-weight: 500; color: #34d399;">${formatBytes(nodeData.rwData)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
-                                <span style="color: #94a3b8;">ROM Share:</span>
-                                <span style="font-weight: 600; color: #f472b6;">${percentText}%</span>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    let catLabel = 'Group:';
-                    if (activeGroupingMode === 'folder') catLabel = 'Folder:';
+    if (displayMode === 'single') {
+        if (singleContainer) singleContainer.classList.remove('hidden');
+        if (multiContainer) multiContainer.classList.add('hidden');
+        
+        if (isRam) {
+            perRamAreaChartInstances = disposeChartInstances(perRamAreaChartInstances, chartResizeObserver);
+            if (!ramChartInstance && singleContainer && singleContainer.clientWidth > 0) {
+                ramChartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
+            }
+            if (ramChartInstance) {
+                const data = getChartData('ram');
+                ramChartInstance.setOption(renderTreemapOption(data, 'ram', groupingMode), true);
+                ramChartInstance.resize();
+            }
+        } else {
+            perAreaChartInstances = disposeChartInstances(perAreaChartInstances, chartResizeObserver);
+            if (!chartInstance && singleContainer && singleContainer.clientWidth > 0) {
+                chartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
+            }
+            if (chartInstance) {
+                const data = getChartData('rom');
+                chartInstance.setOption(renderTreemapOption(data, 'rom', groupingMode), true);
+                chartInstance.resize();
+            }
+        }
+    } else {
+        if (singleContainer) singleContainer.classList.add('hidden');
+        if (multiContainer) multiContainer.classList.remove('hidden');
 
-                    return `
-                        <div style="font-family: Inter, sans-serif; padding: 4px;">
-                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${nodeData.name}</div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Total ROM:</span>
-                                <span style="font-weight: 600; color: #a78bfa;">${formatBytes(nodeData.value)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Items:</span>
-                                <span style="font-weight: 500; color: #fff;">${nodeData.children ? nodeData.children.length : 0}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
-                                <span style="color: #94a3b8;">ROM Share:</span>
-                                <span style="font-weight: 600; color: #f472b6;">${percentText}%</span>
-                            </div>
-                        </div>
-                    `;
-                }
-            },
-            backgroundColor: 'rgba(15, 23, 42, 0.95)',
-            borderColor: '#3b82f6',
-            borderWidth: 1,
-            textStyle: {
-                color: '#f8fafc'
+        if (isRam) {
+            perRamAreaChartInstances = disposeChartInstances(perRamAreaChartInstances, chartResizeObserver);
+        } else {
+            perAreaChartInstances = disposeChartInstances(perAreaChartInstances, chartResizeObserver);
+        }
+
+        if (!multiContainer || !appData) return;
+        multiContainer.innerHTML = '';
+
+        const areas = getDistinctAreas(metric);
+        const palette = isRam ? RAM_PALETTE : ROM_PALETTE;
+        let colorIdx = 0;
+
+        areas.forEach((areaName, index) => {
+            const areaTreeData = buildModuleTree(appData, ewpData, groupingMode, metric, areaName);
+            if (areaTreeData.length === 0) return;
+
+            let areaSum = 0;
+            const calcSum = (nodes) => {
+                nodes.forEach(n => {
+                    if (n.children && n.children.length > 0) calcSum(n.children);
+                    else areaSum += (n.value || 0);
+                });
+            };
+            calcSum(areaTreeData);
+
+            const card = document.createElement('div');
+            card.className = 'rom-area-card';
+            card.id = isRam ? `ram-area-card-${index}` : `rom-area-card-${index}`;
+
+            const header = document.createElement('div');
+            header.className = 'rom-area-card-header';
+            if (isRam) {
+                header.innerHTML = `
+                    <div class="rom-area-title" style="color: var(--color-success);">
+                        <i data-lucide="layers" style="width: 16px; height: 16px; stroke: var(--color-success);"></i>
+                        ${areaName}
+                    </div>
+                    <div class="rom-area-size" style="color: var(--color-success); background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2);">
+                        ${formatBytes(areaSum)}
+                    </div>
+                `;
+            } else {
+                header.innerHTML = `
+                    <div class="rom-area-title">
+                        <i data-lucide="cpu" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i>
+                        ${areaName}
+                    </div>
+                    <div class="rom-area-size">${formatBytes(areaSum)}</div>
+                `;
             }
-        },
-        series: [{
-            type: 'treemap',
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 36,
-            data: data,
-            leafDepth: 1,
-            roam: 'moveAndZoom',
-            nodeClick: 'zoomToNode',
-            breadcrumb: {
-                show: true,
-                height: 32,
-                bottom: 0,
-                itemStyle: {
-                    color: '#1e293b',
-                    borderColor: '#334155',
-                    borderWidth: 1,
-                    textStyle: {
-                        color: '#f8fafc',
-                        fontFamily: 'Inter',
-                        fontSize: 11
-                    }
+
+            const chartDom = document.createElement('div');
+            chartDom.className = 'rom-area-chart';
+            chartDom.id = isRam ? `ram-area-chart-${index}` : `rom-area-chart-${index}`;
+
+            card.appendChild(header);
+            card.appendChild(chartDom);
+            multiContainer.appendChild(card);
+
+            const color = palette[colorIdx % palette.length];
+            colorIdx++;
+
+            areaTreeData.forEach(n => {
+                if (!n.itemStyle) {
+                    n.itemStyle = { color: color };
                 }
-            },
-            levels: [
-                {
-                    itemStyle: {
-                        borderColor: '#0f172a',
-                        borderWidth: 4,
-                        gapWidth: 4
-                    }
-                },
-                {
-                    colorSaturation: [0.35, 0.6],
-                    itemStyle: {
-                        borderColor: '#111827',
-                        borderWidth: 2,
-                        gapWidth: 2
-                    }
-                },
-                {
-                    colorSaturation: [0.3, 0.5],
-                    itemStyle: {
-                        borderColor: '#1e293b',
-                        borderWidth: 1,
-                        gapWidth: 1
-                    }
-                }
-            ],
-            label: {
-                show: true,
-                formatter: function(params) {
-                    return `${params.name}\n${formatBytes(params.value)}`;
-                },
-                fontFamily: 'Inter',
-                fontSize: 11,
-                color: '#ffffff',
-                lineHeight: 14
-            }
-        }]
-    };
+            });
+
+            const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
+            instance.setOption(renderTreemapOption(areaTreeData, metric, groupingMode), true);
+            
+            const targetArray = isRam ? perRamAreaChartInstances : perAreaChartInstances;
+            targetArray.push({ areaName, instance, dom: chartDom, cardDom: card });
+            if (chartResizeObserver) chartResizeObserver.observe(chartDom);
+        });
+
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    }
 }
 
 function drawTreemap() {
-    const singleContainer = document.getElementById('treemap-chart');
-    const multiContainer = document.getElementById('rom-area-treemaps-container');
-
-    if (activeRomAreaDisplayMode === 'single') {
-        if (singleContainer) singleContainer.classList.remove('hidden');
-        if (multiContainer) multiContainer.classList.add('hidden');
-        disposePerAreaCharts();
-
-        if (!chartInstance && singleContainer && singleContainer.clientWidth > 0) {
-            chartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
-        }
-        if (chartInstance) {
-            const data = getChartData();
-            chartInstance.setOption(renderTreemapOption(data), true);
-            chartInstance.resize();
-        }
-    } else {
-        if (singleContainer) singleContainer.classList.add('hidden');
-        if (multiContainer) multiContainer.classList.remove('hidden');
-        disposePerAreaCharts();
-
-        if (!multiContainer || !appData) return;
-        multiContainer.innerHTML = '';
-
-        const romAreas = getDistinctRomAreas();
-        let colorIdx = 0;
-
-        romAreas.forEach((areaName, index) => {
-            const areaTreeData = buildModuleTree(appData, ewpData, activeGroupingMode, 'rom', areaName);
-            if (areaTreeData.length === 0) return;
-
-            let areaSum = 0;
-            const calcSum = (nodes) => {
-                nodes.forEach(n => {
-                    if (n.children && n.children.length > 0) calcSum(n.children);
-                    else areaSum += (n.value || 0);
-                });
-            };
-            calcSum(areaTreeData);
-
-            const card = document.createElement('div');
-            card.className = 'rom-area-card';
-            card.id = `rom-area-card-${index}`;
-
-            const header = document.createElement('div');
-            header.className = 'rom-area-card-header';
-            header.innerHTML = `
-                <div class="rom-area-title">
-                    <i data-lucide="cpu" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i>
-                    ${areaName}
-                </div>
-                <div class="rom-area-size">${formatBytes(areaSum)}</div>
-            `;
-
-            const chartDom = document.createElement('div');
-            chartDom.className = 'rom-area-chart';
-            chartDom.id = `rom-area-chart-${index}`;
-
-            card.appendChild(header);
-            card.appendChild(chartDom);
-            multiContainer.appendChild(card);
-
-            const color = PALETTE[colorIdx % PALETTE.length];
-            colorIdx++;
-
-            areaTreeData.forEach(n => {
-                if (!n.itemStyle) {
-                    n.itemStyle = { color: color };
-                }
-            });
-
-            const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
-            instance.setOption(renderTreemapOption(areaTreeData), true);
-            perAreaChartInstances.push({ areaName, instance, dom: chartDom, cardDom: card });
-            if (chartResizeObserver) chartResizeObserver.observe(chartDom);
-        });
-
-        if (typeof lucide !== 'undefined' && lucide.createIcons) {
-            lucide.createIcons();
-        }
-    }
-}
-
-// Prepare hierarchical ECharts structure for RAM (RW Data)
-function getRamChartData() {
-    if (!appData) return [];
-    const treeNodes = buildModuleTree(appData, ewpData, activeRamGroupingMode, 'ram', null);
-    treeNodes.forEach((node, idx) => {
-        if (!node.itemStyle) {
-            node.itemStyle = {
-                color: RAM_PALETTE[idx % RAM_PALETTE.length]
-            };
-        }
-    });
-    return treeNodes;
-}
-
-function renderRamTreemapOption(data) {
-    return {
-        backgroundColor: 'transparent',
-        tooltip: {
-            trigger: 'item',
-            formatter: function (info) {
-                const nodeData = info.data;
-                if (!nodeData) return info.name;
-                
-                const percentText = (nodeData.percentage || nodeData.ramPercentage || 0).toFixed(2);
-                
-                if (nodeData.roCode !== undefined) {
-                    let groupLabel = 'Group/Library:';
-                    let groupVal = nodeData.group || 'Unknown';
-                    if (activeRamGroupingMode === 'folder') {
-                        groupLabel = 'EWARM Folder:';
-                        groupVal = nodeData.folderPath || groupVal;
-                    } else if (activeRamGroupingMode === 'none') {
-                        groupLabel = 'RAM Area:';
-                        groupVal = nodeData.ramArea || nodeData.romArea || 'Unknown';
-                    }
-
-                    return `
-                        <div style="font-family: Inter, sans-serif; padding: 4px;">
-                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">${groupLabel}</span>
-                                <span style="font-weight: 500; color: #fff;">${groupVal}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">RAM (RW Data):</span>
-                                <span style="font-weight: 600; color: #34d399;">${formatBytes(nodeData.rwData)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Total ROM:</span>
-                                <span style="font-weight: 500; color: #a78bfa;">${formatBytes(nodeData.romSize)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
-                                <span style="color: #94a3b8;">RAM Share:</span>
-                                <span style="font-weight: 600; color: #34d399;">${percentText}%</span>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    let catLabel = 'Group:';
-                    if (activeRamGroupingMode === 'folder') catLabel = 'Folder:';
-
-                    return `
-                        <div style="font-family: Inter, sans-serif; padding: 4px;">
-                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${nodeData.name}</div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Total RAM:</span>
-                                <span style="font-weight: 600; color: #34d399;">${formatBytes(nodeData.value)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                <span style="color: #94a3b8;">Items:</span>
-                                <span style="font-weight: 500; color: #fff;">${nodeData.children ? nodeData.children.length : 0}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
-                                <span style="color: #94a3b8;">RAM Share:</span>
-                                <span style="font-weight: 600; color: #34d399;">${percentText}%</span>
-                            </div>
-                        </div>
-                    `;
-                }
-            },
-            backgroundColor: 'rgba(15, 23, 42, 0.95)',
-            borderColor: '#10b981',
-            borderWidth: 1,
-            textStyle: {
-                color: '#f8fafc'
-            }
-        },
-        series: [{
-            type: 'treemap',
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 36,
-            data: data,
-            leafDepth: 1,
-            roam: 'moveAndZoom',
-            nodeClick: 'zoomToNode',
-            breadcrumb: {
-                show: true,
-                height: 32,
-                bottom: 0,
-                itemStyle: {
-                    color: '#064e3b',
-                    borderColor: '#047857',
-                    borderWidth: 1,
-                    textStyle: {
-                        color: '#f8fafc',
-                        fontFamily: 'Inter',
-                        fontSize: 11
-                    }
-                }
-            },
-            levels: [
-                {
-                    itemStyle: {
-                        borderColor: '#0f172a',
-                        borderWidth: 4,
-                        gapWidth: 4
-                    }
-                },
-                {
-                    colorSaturation: [0.35, 0.6],
-                    itemStyle: {
-                        borderColor: '#111827',
-                        borderWidth: 2,
-                        gapWidth: 2
-                    }
-                },
-                {
-                    colorSaturation: [0.3, 0.5],
-                    itemStyle: {
-                        borderColor: '#1e293b',
-                        borderWidth: 1,
-                        gapWidth: 1
-                    }
-                }
-            ],
-            label: {
-                show: true,
-                formatter: function(params) {
-                    return `${params.name}\n${formatBytes(params.value)}`;
-                },
-                fontFamily: 'Inter',
-                fontSize: 11,
-                color: '#ffffff',
-                lineHeight: 14
-            }
-        }]
-    };
+    drawTreemapView('rom');
 }
 
 function drawRamTreemap() {
-    const singleContainer = document.getElementById('ram-treemap-chart');
-    const multiContainer = document.getElementById('ram-area-treemaps-container');
-
-    if (activeRamAreaDisplayMode === 'single') {
-        if (singleContainer) singleContainer.classList.remove('hidden');
-        if (multiContainer) multiContainer.classList.add('hidden');
-        disposePerRamAreaCharts();
-
-        if (!ramChartInstance && singleContainer && singleContainer.clientWidth > 0) {
-            ramChartInstance = echarts.init(singleContainer, 'dark', { renderer: 'canvas' });
-        }
-        if (ramChartInstance) {
-            const data = getRamChartData();
-            ramChartInstance.setOption(renderRamTreemapOption(data), true);
-            ramChartInstance.resize();
-        }
-    } else {
-        if (singleContainer) singleContainer.classList.add('hidden');
-        if (multiContainer) multiContainer.classList.remove('hidden');
-        disposePerRamAreaCharts();
-
-        if (!multiContainer || !appData) return;
-        multiContainer.innerHTML = '';
-
-        const ramAreas = getDistinctRamAreas();
-        let colorIdx = 0;
-
-        ramAreas.forEach((areaName, index) => {
-            const areaTreeData = buildModuleTree(appData, ewpData, activeRamGroupingMode, 'ram', areaName);
-            if (areaTreeData.length === 0) return;
-
-            let areaSum = 0;
-            const calcSum = (nodes) => {
-                nodes.forEach(n => {
-                    if (n.children && n.children.length > 0) calcSum(n.children);
-                    else areaSum += (n.value || 0);
-                });
-            };
-            calcSum(areaTreeData);
-
-            const card = document.createElement('div');
-            card.className = 'rom-area-card';
-            card.id = `ram-area-card-${index}`;
-
-            const header = document.createElement('div');
-            header.className = 'rom-area-card-header';
-            header.innerHTML = `
-                <div class="rom-area-title" style="color: var(--color-success);">
-                    <i data-lucide="layers" style="width: 16px; height: 16px; stroke: var(--color-success);"></i>
-                    ${areaName}
-                </div>
-                <div class="rom-area-size" style="color: var(--color-success); background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2);">
-                    ${formatBytes(areaSum)}
-                </div>
-            `;
-
-            const chartDom = document.createElement('div');
-            chartDom.className = 'rom-area-chart';
-            chartDom.id = `ram-area-chart-${index}`;
-
-            card.appendChild(header);
-            card.appendChild(chartDom);
-            multiContainer.appendChild(card);
-
-            const color = RAM_PALETTE[colorIdx % RAM_PALETTE.length];
-            colorIdx++;
-
-            areaTreeData.forEach(n => {
-                if (!n.itemStyle) {
-                    n.itemStyle = { color: color };
-                }
-            });
-
-            const instance = echarts.init(chartDom, 'dark', { renderer: 'canvas' });
-            instance.setOption(renderRamTreemapOption(areaTreeData), true);
-            perRamAreaChartInstances.push({ areaName, instance, dom: chartDom, cardDom: card });
-            if (chartResizeObserver) chartResizeObserver.observe(chartDom);
-        });
-
-        if (typeof lucide !== 'undefined' && lucide.createIcons) {
-            lucide.createIcons();
-        }
-    }
+    drawTreemapView('ram');
 }
 
 // Flat list of modules for sorting and rendering in table
@@ -1367,5 +896,3 @@ function zoomToModuleInChart(groupName, folderPath, moduleName, romArea) {
         }
     }
 }
-
-

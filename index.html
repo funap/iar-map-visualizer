@@ -53,8 +53,8 @@
                     <i data-lucide="upload-cloud" class="dropzone-icon"></i>
                     <p class="dropzone-text">Drag & drop your EWARM <b>.map</b> or <b>.ewp</b> files here</p>
                     <p class="dropzone-subtext">or click to browse your local filesystem (select both .map & .ewp)</p>
-                    <input type="file" id="file-input" accept=".map,.ewp" multiple style="display: none;">
-                    <input type="file" id="ewp-file-input" accept=".ewp" style="display: none;">
+                    <input type="file" id="file-input" accept=".map,.ewp,.MAP,.EWP" multiple style="display: none;">
+                    <input type="file" id="ewp-file-input" accept=".ewp,.EWP" style="display: none;">
                 </div>
                 
                 <div style="margin-top: 2rem; display: flex; align-items: center; justify-content: center; gap: 1rem;">
@@ -317,39 +317,9 @@
     </div>
 
     <!-- Application Scripts -->
+    <script src="js/sample-data.js"></script>
     <script src="js/parser.js"></script>
+    <script src="js/chart.js"></script>
     <script src="js/app.js"></script>
-    <script>
-        // Mini dropzone syncs with main dropzone logic
-        document.addEventListener('DOMContentLoaded', () => {
-            const miniDropzone = document.getElementById('dropzone-mini');
-            const fileInput = document.getElementById('file-input');
-            if (miniDropzone) {
-                miniDropzone.addEventListener('click', () => fileInput.click());
-                
-                miniDropzone.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    miniDropzone.classList.add('dragover');
-                });
-                
-                ['dragleave', 'drop'].forEach(eventName => {
-                    miniDropzone.addEventListener(eventName, () => {
-                        miniDropzone.classList.remove('dragover');
-                    });
-                });
-                
-                miniDropzone.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    const files = e.dataTransfer.files;
-                    if (files.length > 0) {
-                        // Find app.js file processor and pass files
-                        const inputEvent = new Event('change');
-                        fileInput.files = files;
-                        fileInput.dispatchEvent(inputEvent);
-                    }
-                });
-            }
-        });
-    </script>
 </body>
 </html>
