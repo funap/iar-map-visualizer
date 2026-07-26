@@ -122,19 +122,44 @@
         <!-- Header Section -->
         <header class="glass-card animate-fade-in" style="border-radius: 16px;">
             <div class="header-info">
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div style="background: var(--gradient-accent); padding: 0.5rem; border-radius: 8px; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-glow);">
-                        <i data-lucide="cpu" style="width: 24px; height: 24px; stroke: #fff;"></i>
+                <div class="header-brand">
+                    <div class="header-icon-box">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+                          <defs>
+                            <linearGradient id="header-logo-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stop-color="#0b0f19"/>
+                              <stop offset="100%" stop-color="#1e293b"/>
+                            </linearGradient>
+                            <linearGradient id="header-logo-primary" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stop-color="#6366f1"/>
+                              <stop offset="100%" stop-color="#8b5cf6"/>
+                            </linearGradient>
+                            <linearGradient id="header-logo-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stop-color="#06b6d4"/>
+                              <stop offset="100%" stop-color="#3b82f6"/>
+                            </linearGradient>
+                          </defs>
+                          <rect width="512" height="512" rx="128" fill="url(#header-logo-bg)"/>
+                          <rect x="96" y="96" width="150" height="150" rx="16" fill="url(#header-logo-primary)" opacity="0.9"/>
+                          <rect x="266" y="96" width="150" height="90" rx="16" fill="url(#header-logo-accent)" opacity="0.9"/>
+                          <rect x="266" y="206" width="150" height="210" rx="16" fill="url(#header-logo-primary)" opacity="0.75"/>
+                          <rect x="96" y="266" width="150" height="150" rx="16" fill="url(#header-logo-accent)" opacity="0.8"/>
+                          <circle cx="171" cy="171" r="28" fill="#ffffff" opacity="0.9"/>
+                        </svg>
                     </div>
                     <div>
-                        <h1 style="font-family: 'Outfit', sans-serif;">IAR Map Visualizer</h1>
-                        <p>Visualize ROM/Flash footprint of object modules & libraries</p>
+                        <div class="header-title-group">
+                            <h1 style="font-family: 'Outfit', sans-serif;"><span class="title-brand-accent">IAR</span> Map Visualizer</h1>
+                            <span class="header-badge">EWARM</span>
+                        </div>
+                        <p>Visualize ROM/Flash footprint of object modules &amp; libraries</p>
                     </div>
                 </div>
             </div>
             <div class="header-actions" style="display: flex; align-items: center; gap: 0.75rem;">
-                <a href="https://github.com/funap/iar-map-visualizer" target="_blank" rel="noopener noreferrer" class="btn" title="View on GitHub">
-                    <i data-lucide="github" style="width: 16px; height: 16px;"></i> GitHub
+                <a href="https://github.com/funap/iar-map-visualizer" target="_blank" rel="noopener noreferrer" class="btn-github" title="View Source on GitHub">
+                    <i data-lucide="github" style="width: 18px; height: 18px;"></i>
+                    <span>GitHub</span>
                 </a>
             </div>
         </header>
@@ -473,6 +498,23 @@
                     </div>
                 </div>
             </section>
+
+            <!-- App Footer -->
+            <footer class="app-footer">
+                <div class="footer-content">
+                    <p class="footer-copyright">
+                        Developed by <a href="https://github.com/funap" target="_blank" rel="noopener noreferrer">funap</a> &bull; Free &amp; Open Source
+                    </p>
+                    <div class="footer-links">
+                        <a href="https://github.com/funap/iar-map-visualizer" target="_blank" rel="noopener noreferrer" class="footer-link">
+                            <i data-lucide="github" style="width: 14px; height: 14px;"></i> Repository
+                        </a>
+                        <a href="https://github.com/funap/iar-map-visualizer/issues" target="_blank" rel="noopener noreferrer" class="footer-link">
+                            <i data-lucide="bug" style="width: 14px; height: 14px;"></i> Report Issue
+                        </a>
+                    </div>
+                </div>
+            </footer>
         </main>
     </div>
 
