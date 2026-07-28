@@ -253,22 +253,19 @@ function renderRamAddressGrid(parsedData) {
         return;
     }
 
-    // 2. Determine RAM address bounds (0x1000 aligned)
-    let minAddr = Infinity;
-    let maxAddr = -Infinity;
-
+    // 2. Identify all 0x1000 page bases containing at least one module
+    const activePageBasesSet = new Set();
     ramModules.forEach(mod => {
         const start = mod.ramAddress || 0x20000000;
         const end = start + mod.rwData;
-        if (start < minAddr) minAddr = start;
-        if (end > maxAddr) maxAddr = end;
+        const firstPage = Math.floor(start / 0x1000) * 0x1000;
+        const lastPage = Math.floor(Math.max(start, end - 1) / 0x1000) * 0x1000;
+        for (let p = firstPage; p <= lastPage; p += 0x1000) {
+            activePageBasesSet.add(p);
+        }
     });
 
-    if (minAddr === Infinity || isNaN(minAddr)) minAddr = 0x20000000;
-    if (maxAddr === -Infinity || isNaN(maxAddr) || maxAddr <= minAddr) maxAddr = minAddr + 0x1000;
-
-    const firstPageBase = Math.floor(minAddr / 0x1000) * 0x1000;
-    const lastPageBase = Math.floor((maxAddr - 1) / 0x1000) * 0x1000;
+    const activePageBases = Array.from(activePageBasesSet).sort((a, b) => a - b);
 
     // Build color map for libraries/groups
     const groupColorMap = {};
@@ -291,10 +288,26 @@ function renderRamAddressGrid(parsedData) {
     }
 
     const formatHex = (num) => "0x" + num.toString(16).padStart(8, '0').toUpperCase().replace(/(.{4})(.{4})/, "$1'$2");
-    const formatHexShort = (num) => "0x" + num.toString(16).padStart(4, '0').toUpperCase();
 
-    // 3. Render each 0x1000 (4KB) page row
-    for (let pageBase = firstPageBase; pageBase <= lastPageBase; pageBase += 0x1000) {
+    // 3. Render active 0x1000 page rows and insert gap dividers for non-contiguous unused ranges
+    for (let i = 0; i < activePageBases.length; i++) {
+        const pageBase = activePageBases[i];
+
+        // Insert gap divider row if there is an address jump between active pages
+        if (i > 0) {
+            const prevPageBase = activePageBases[i - 1];
+            if (pageBase > prevPageBase + 0x1000) {
+                const gapStart = prevPageBase + 0x1000;
+                const gapEnd = pageBase - 1;
+                const gapSizeBytes = gapEnd - gapStart + 1;
+
+                const gapEl = document.createElement("div");
+                gapEl.className = "ram-grid-gap-row";
+                gapEl.innerHTML = `&ctdot; ${formatHex(gapStart)} &ndash; ${formatHex(gapEnd)} Unused RAM Address Gap (${formatBytes(gapSizeBytes)}) &ctdot;`;
+                rowsContainer.appendChild(gapEl);
+            }
+        }
+
         const pageEnd = pageBase + 0x0FFF;
 
         // Find modules overlapping with this 4KB page

@@ -1032,6 +1032,30 @@ tr:hover {
     display: none;
 }
 
+/* Collapsed Unused Address Gap Indicator Row */
+.ram-grid-gap-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    background: rgba(15, 23, 42, 0.3);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    margin: 0.2rem 0;
+    font-family: 'SFMono-Regular', Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    user-select: none;
+    transition: var(--transition-smooth);
+}
+
+.ram-grid-gap-row:hover {
+    background: rgba(30, 41, 59, 0.5);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-secondary);
+}
+
 
 
 
