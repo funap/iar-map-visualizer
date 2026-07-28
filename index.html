@@ -463,7 +463,42 @@
                     <div id="ram-area-treemaps-container" class="rom-area-grid hidden"></div>
                 </div>
 
+                <!-- RAM Address Placement Grid -->
+                <div class="glass-card chart-card animate-fade-in">
+                    <div class="chart-header" style="flex-direction: column; align-items: stretch; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                            <h2>
+                                <i data-lucide="cpu" style="width: 18px; height: 18px; stroke: var(--color-success);"></i> RAM Address Placement Grid
+                            </h2>
+                            <span style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                                <i data-lucide="info" style="width: 12px; height: 12px;"></i> Vertical: 0x1000 base | Horizontal: 0x0000–0x0FFF offsets
+                            </span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">
+                            Displays RAM module (.o) address placement. Each row represents a 4KB (0x1000) memory page block, and horizontal blocks depict .o module footprints from 0x0000 to 0x0FFF address offset.
+                        </div>
+                    </div>
 
+                    <!-- Grid Layout Container -->
+                    <div class="ram-grid-wrapper" style="margin-top: 1rem; overflow-x: auto;">
+                        <!-- Ruler Bar -->
+                        <div class="ram-grid-ruler">
+                            <div class="ruler-addr-label">Base Address</div>
+                            <div class="ruler-bar-ticks">
+                                <span style="left: 0%;">0x0000</span>
+                                <span style="left: 25%;">0x0400</span>
+                                <span style="left: 50%;">0x0800</span>
+                                <span style="left: 75%;">0x0C00</span>
+                                <span style="left: 100%; transform: translateX(-100%);">0x0FFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Rows Container -->
+                        <div id="ram-grid-rows" class="ram-grid-rows-container">
+                            <!-- Dynamic rows will be rendered here -->
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Detailed Modules Table -->
                 <div class="glass-card table-card animate-fade-in">

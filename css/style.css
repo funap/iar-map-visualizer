@@ -877,6 +877,161 @@ tr:hover {
     color: #818cf8;
 }
 
+/* ==========================================================================
+   RAM Address Placement Grid Styles
+   ========================================================================== */
+
+.ram-grid-wrapper {
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 1rem;
+    min-width: 650px;
+}
+
+.ram-grid-ruler {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: 'SFMono-Regular', Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ruler-addr-label {
+    width: 140px;
+    flex-shrink: 0;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.ruler-bar-ticks {
+    position: relative;
+    flex: 1;
+    height: 18px;
+}
+
+.ruler-bar-ticks span {
+    position: absolute;
+    top: 0;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.ram-grid-rows-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.ram-grid-row {
+    display: flex;
+    align-items: center;
+    height: 38px;
+    background: rgba(30, 41, 59, 0.4);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    transition: var(--transition-smooth);
+}
+
+.ram-grid-row:hover {
+    background: rgba(30, 41, 59, 0.7);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.ram-grid-row-label {
+    width: 140px;
+    flex-shrink: 0;
+    padding: 0 0.75rem;
+    font-family: 'SFMono-Regular', Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-success);
+    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.ram-grid-track {
+    position: relative;
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 0 6px 6px 0;
+    overflow: hidden;
+    padding: 3px;
+    gap: 1px;
+}
+
+.ram-grid-block {
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 6px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+}
+
+.ram-grid-block:hover {
+    filter: brightness(1.25);
+    transform: scaleY(1.08);
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.ram-grid-block.unused {
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.02),
+        rgba(255, 255, 255, 0.02) 8px,
+        rgba(255, 255, 255, 0.04) 8px,
+        rgba(255, 255, 255, 0.04) 16px
+    );
+    color: rgba(255, 255, 255, 0.25);
+    font-weight: 400;
+    cursor: default;
+    border: 1px dashed rgba(255, 255, 255, 0.05);
+}
+
+.ram-grid-block.unused:hover {
+    filter: none;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Custom Floating Tooltip for RAM Grid */
+.ram-grid-tooltip-popup {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid var(--color-success);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+    pointer-events: none;
+    font-family: Inter, sans-serif;
+    color: #f8fafc;
+    font-size: 0.8rem;
+    display: none;
+}
+
 
 
 

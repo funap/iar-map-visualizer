@@ -217,3 +217,233 @@ function disposeChartInstances(instancesList, observer) {
     });
     return [];
 }
+
+/**
+ * Render RAM Address Placement Grid (0x1000 Page View)
+ * @param {Object} parsedData Result from parseMapFile
+ */
+function renderRamAddressGrid(parsedData) {
+    const rowsContainer = document.getElementById("ram-grid-rows");
+    if (!rowsContainer) return;
+
+    rowsContainer.innerHTML = "";
+
+    // 1. Collect all modules with rwData > 0
+    const ramModules = [];
+    if (parsedData && parsedData.groups) {
+        Object.values(parsedData.groups).forEach(grp => {
+            if (grp.modules) {
+                grp.modules.forEach(mod => {
+                    if (mod.rwData > 0) {
+                        ramModules.push(mod);
+                    }
+                });
+            }
+        });
+    }
+
+    if (ramModules.length === 0) {
+        rowsContainer.innerHTML = `
+            <div class="no-data-overlay" style="padding: 2rem;">
+                <i data-lucide="layers" class="no-data-icon"></i>
+                <p>No RAM (RW Data) modules found in map file.</p>
+            </div>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+    }
+
+    // 2. Determine RAM address bounds (0x1000 aligned)
+    let minAddr = Infinity;
+    let maxAddr = -Infinity;
+
+    ramModules.forEach(mod => {
+        const start = mod.ramAddress || 0x20000000;
+        const end = start + mod.rwData;
+        if (start < minAddr) minAddr = start;
+        if (end > maxAddr) maxAddr = end;
+    });
+
+    if (minAddr === Infinity || isNaN(minAddr)) minAddr = 0x20000000;
+    if (maxAddr === -Infinity || isNaN(maxAddr) || maxAddr <= minAddr) maxAddr = minAddr + 0x1000;
+
+    const firstPageBase = Math.floor(minAddr / 0x1000) * 0x1000;
+    const lastPageBase = Math.floor((maxAddr - 1) / 0x1000) * 0x1000;
+
+    // Build color map for libraries/groups
+    const groupColorMap = {};
+    let colorIdx = 0;
+    ramModules.forEach(mod => {
+        const grpKey = mod.group || 'Default';
+        if (!groupColorMap[grpKey]) {
+            groupColorMap[grpKey] = RAM_PALETTE[colorIdx % RAM_PALETTE.length];
+            colorIdx++;
+        }
+    });
+
+    // Ensure floating tooltip popup element exists
+    let tooltipEl = document.getElementById("ram-grid-tooltip");
+    if (!tooltipEl) {
+        tooltipEl = document.createElement("div");
+        tooltipEl.id = "ram-grid-tooltip";
+        tooltipEl.className = "ram-grid-tooltip-popup";
+        document.body.appendChild(tooltipEl);
+    }
+
+    const formatHex = (num) => "0x" + num.toString(16).padStart(8, '0').toUpperCase().replace(/(.{4})(.{4})/, "$1'$2");
+    const formatHexShort = (num) => "0x" + num.toString(16).padStart(4, '0').toUpperCase();
+
+    // 3. Render each 0x1000 (4KB) page row
+    for (let pageBase = firstPageBase; pageBase <= lastPageBase; pageBase += 0x1000) {
+        const pageEnd = pageBase + 0x0FFF;
+
+        // Find modules overlapping with this 4KB page
+        const pageModules = [];
+        ramModules.forEach(mod => {
+            const modStart = mod.ramAddress || 0x20000000;
+            const modEnd = modStart + mod.rwData;
+
+            if (modStart <= pageEnd && modEnd > pageBase) {
+                pageModules.push({
+                    module: mod,
+                    modStart,
+                    modEnd,
+                    startOffset: Math.max(0, modStart - pageBase),
+                    endOffset: Math.min(4096, modEnd - pageBase)
+                });
+            }
+        });
+
+        // Sort overlapping modules by offset
+        pageModules.sort((a, b) => a.startOffset - b.startOffset);
+
+        // Build list of contiguous slots (modules + unused spaces) for 0x0000 to 0x0FFF
+        const slots = [];
+        let currentOffset = 0;
+
+        pageModules.forEach(pm => {
+            if (pm.startOffset > currentOffset) {
+                // Gap / Unused slot
+                slots.push({
+                    type: 'unused',
+                    startOffset: currentOffset,
+                    endOffset: pm.startOffset,
+                    bytes: pm.startOffset - currentOffset
+                });
+            }
+
+            slots.push({
+                type: 'module',
+                module: pm.module,
+                modStart: pm.modStart,
+                modEnd: pm.modEnd,
+                startOffset: pm.startOffset,
+                endOffset: pm.endOffset,
+                bytes: pm.endOffset - pm.startOffset
+            });
+
+            currentOffset = Math.max(currentOffset, pm.endOffset);
+        });
+
+        if (currentOffset < 4096) {
+            slots.push({
+                type: 'unused',
+                startOffset: currentOffset,
+                endOffset: 4096,
+                bytes: 4096 - currentOffset
+            });
+        }
+
+        // Construct HTML Row
+        const rowEl = document.createElement("div");
+        rowEl.className = "ram-grid-row";
+
+        const labelEl = document.createElement("div");
+        labelEl.className = "ram-grid-row-label";
+        labelEl.textContent = formatHex(pageBase);
+        rowEl.appendChild(labelEl);
+
+        const trackEl = document.createElement("div");
+        trackEl.className = "ram-grid-track";
+
+        slots.forEach(slot => {
+            const blockEl = document.createElement("div");
+            const widthPct = ((slot.endOffset - slot.startOffset) / 4096) * 100;
+            blockEl.style.width = `${widthPct}%`;
+
+            if (slot.type === 'module') {
+                blockEl.className = "ram-grid-block";
+                const bgColor = groupColorMap[slot.module.group || 'Default'] || '#10b981';
+                blockEl.style.background = bgColor;
+                blockEl.textContent = slot.module.name;
+
+                // Tooltip events
+                blockEl.addEventListener("mouseenter", (e) => {
+                    const startAddrHex = formatHex(slot.modStart);
+                    const endAddrHex = formatHex(slot.modEnd - 1);
+                    const percentOfPage = ((slot.bytes / 4096) * 100).toFixed(1);
+                    
+                    tooltipEl.innerHTML = `
+                        <div style="font-weight: 700; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #34d399;">
+                            ${slot.module.name}
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
+                            <span style="color: #94a3b8;">Group / Library:</span>
+                            <span style="font-weight: 500;">${slot.module.group || 'Unknown'}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
+                            <span style="color: #94a3b8;">RAM Address Range:</span>
+                            <span style="font-family: monospace; color: #6ee7b7;">${startAddrHex} – ${endAddrHex}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
+                            <span style="color: #94a3b8;">Module RW Data Size:</span>
+                            <span style="font-weight: 600; color: #fff;">${formatBytes(slot.module.rwData)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 16px;">
+                            <span style="color: #94a3b8;">Page Share (4KB):</span>
+                            <span style="font-weight: 600; color: #a78bfa;">${percentOfPage}%</span>
+                        </div>
+                    `;
+                    tooltipEl.style.display = "block";
+                });
+            } else {
+                blockEl.className = "ram-grid-block unused";
+                blockEl.textContent = widthPct > 8 ? "Unused" : "";
+
+                blockEl.addEventListener("mouseenter", (e) => {
+                    const startAddrHex = formatHex(pageBase + slot.startOffset);
+                    const endAddrHex = formatHex(pageBase + slot.endOffset - 1);
+
+                    tooltipEl.innerHTML = `
+                        <div style="font-weight: 700; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #94a3b8;">
+                            Unused RAM Space (Empty)
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
+                            <span style="color: #94a3b8;">Address Range:</span>
+                            <span style="font-family: monospace; color: #cbd5e1;">${startAddrHex} – ${endAddrHex}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; gap: 16px;">
+                            <span style="color: #94a3b8;">Available Free Size:</span>
+                            <span style="font-weight: 600; color: #94a3b8;">${formatBytes(slot.bytes)}</span>
+                        </div>
+                    `;
+                    tooltipEl.style.display = "block";
+                });
+            }
+
+            blockEl.addEventListener("mousemove", (e) => {
+                tooltipEl.style.left = (e.clientX + 14) + "px";
+                tooltipEl.style.top = (e.clientY + 14) + "px";
+            });
+
+            blockEl.addEventListener("mouseleave", () => {
+                tooltipEl.style.display = "none";
+            });
+
+            trackEl.appendChild(blockEl);
+        });
+
+        rowEl.appendChild(trackEl);
+        rowsContainer.appendChild(rowEl);
+    }
+}

@@ -22,6 +22,11 @@ const SAMPLE_MAP_FALLBACK = `###################################################
   0x0800244e   0x0450  code    sensor.o
   0x0800289e   0x030c  code    utils.o
   0x90000000  0x4500  code    wifi.o
+  0x20000000   0x0040  inited  display.o
+  0x20000200   0x0010  inited  main.o
+  0x20000350   0x0004  inited  motor.o
+  0x20000800   0x0008  inited  sensor.o
+  0x20001050   0x0100  inited  wifi.o
 
 ***************************************************************************
 *** MODULE SUMMARY ***

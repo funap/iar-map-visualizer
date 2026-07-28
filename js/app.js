@@ -492,6 +492,7 @@ function onDataLoaded() {
     updateBudgetMeter();
     drawTreemap();
     drawRamTreemap();
+    renderRamAddressGrid(appData);
     updateSortHeaders();
     renderTable();
 

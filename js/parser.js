@@ -346,11 +346,32 @@ function parseMapFile(text) {
         }
     }
     
-    // Prune empty groups
+    // Prune empty groups & calculate fallback sequential RAM addresses if needed
+    let currentFallbackRamAddr = 0x20000000;
     for (const groupName in groups) {
         if (!groups[groupName].modules || groups[groupName].modules.length === 0) {
             delete groups[groupName];
+            continue;
         }
+
+        groups[groupName].modules.forEach(mod => {
+            const lowerObjName = mod.name.toLowerCase();
+            const matchedRamAddr = moduleRamAddressMap.get(lowerObjName);
+            if (matchedRamAddr !== undefined) {
+                mod.ramAddress = matchedRamAddr;
+                mod.hasExplicitRamAddr = true;
+            } else if (mod.rwData > 0) {
+                mod.ramAddress = currentFallbackRamAddr;
+                mod.hasExplicitRamAddr = false;
+                // Align next fallback address to 4-byte boundary
+                const alignedSize = Math.ceil(mod.rwData / 4) * 4;
+                currentFallbackRamAddr += Math.max(alignedSize, 4);
+            } else {
+                mod.ramAddress = 0x20000000;
+                mod.hasExplicitRamAddr = false;
+            }
+            mod.ramArea = getRomAreaName(mod.ramAddress);
+        });
     }
     
     return {
