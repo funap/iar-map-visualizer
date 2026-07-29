@@ -886,7 +886,14 @@ tr:hover {
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     padding: 1rem;
-    min-width: 650px;
+    overflow-x: auto;
+    max-width: 100%;
+    margin-top: 1rem;
+}
+
+.ram-grid-ruler,
+.ram-grid-rows-container {
+    min-width: 620px;
 }
 
 .ram-grid-ruler {
