@@ -15,6 +15,35 @@ const RAM_PALETTE = [
 ];
 
 /**
+ * Escapes HTML if parser.js escapeHtml is not available in scope.
+ * @param {*} value
+ * @returns {string}
+ */
+function safeEscapeHtml(value) {
+    if (typeof escapeHtml === 'function') return escapeHtml(value);
+    if (value === undefined || value === null) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
+ * Formats hex address safely across 32-bit and wider address spaces.
+ * @param {number} num
+ * @returns {string}
+ */
+function safeFormatHex(num) {
+    if (typeof formatHexAddress === 'function') return formatHexAddress(num);
+    const safe = Number.isFinite(num) && num >= 0 ? Math.floor(num) : 0;
+    const rawHex = safe.toString(16).toUpperCase();
+    const minLen = rawHex.length <= 8 ? 8 : Math.ceil(rawHex.length / 4) * 4;
+    return "0x" + rawHex.padStart(minLen, '0').replace(/\B(?=(\w{4})+(?!\w))/g, "'");
+}
+
+/**
  * Builds ECharts Option object for Treemap
  * @param {Array} data Treemap hierarchy nodes
  * @param {string} metric 'rom' | 'ram'
@@ -35,12 +64,15 @@ function renderTreemapOption(data, metric = 'rom', groupingMode = 'library') {
             trigger: 'item',
             formatter: function (info) {
                 const nodeData = info.data;
-                if (!nodeData) return info.name;
-                
-                const percentText = isRam 
-                    ? (nodeData.percentage || nodeData.ramPercentage || 0).toFixed(2)
-                    : (nodeData.romPercentage || nodeData.percentage || 0).toFixed(2);
-                
+                if (!nodeData) return safeEscapeHtml(info.name || '');
+
+                // Use area-relative percentage when available (matches displayed chart in both Single and Split-by-Area modes)
+                const rawPct = nodeData.percentage !== undefined
+                    ? nodeData.percentage
+                    : (isRam ? nodeData.ramPercentage : nodeData.romPercentage);
+                const percentText = Number(rawPct || 0).toFixed(2);
+                const safeName = safeEscapeHtml(nodeData.name || '');
+
                 if (nodeData.roCode !== undefined) {
                     let groupLabel = 'Group/Library:';
                     let groupVal = nodeData.group || 'Unknown';
@@ -51,22 +83,36 @@ function renderTreemapOption(data, metric = 'rom', groupingMode = 'library') {
                         groupLabel = isRam ? 'RAM Area:' : 'ROM Area:';
                         groupVal = isRam ? (nodeData.ramArea || nodeData.romArea || 'Unknown') : (nodeData.romArea || 'Unknown');
                     }
+                    const safeGroupVal = safeEscapeHtml(groupVal);
+                    const rwCodeVal = nodeData.rwCode || 0;
+                    const rwDataVal = nodeData.rwData || 0;
+                    const ramBytes = nodeData.ramSize !== undefined ? nodeData.ramSize : (rwDataVal + rwCodeVal);
+                    const rwCodeBreakdownHtml = rwCodeVal > 0 ? `
+                                <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px; padding-left: 8px;">
+                                    <span style="color: #64748b;">↳ RW Data:</span>
+                                    <span style="font-weight: 500; color: #f8fafc;">${formatBytes(rwDataVal)}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 4px; padding-left: 8px;">
+                                    <span style="color: #64748b;">↳ RW Code:</span>
+                                    <span style="font-weight: 500; color: #f8fafc;">${formatBytes(rwCodeVal)}</span>
+                                </div>` : '';
 
                     if (isRam) {
                         return `
                             <div style="font-family: Inter, sans-serif; padding: 4px;">
-                                <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
+                                <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${safeName}</div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                     <span style="color: #94a3b8;">${groupLabel}</span>
-                                    <span style="font-weight: 500; color: #fff;">${groupVal}</span>
+                                    <span style="font-weight: 500; color: #fff;">${safeGroupVal}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
-                                    <span style="color: #94a3b8;">RAM (RW Data):</span>
-                                    <span style="font-weight: 600; color: ${highlightColor};">${formatBytes(nodeData.rwData)}</span>
+                                    <span style="color: #94a3b8;">Total RAM (RW):</span>
+                                    <span style="font-weight: 600; color: ${highlightColor};">${formatBytes(ramBytes)}</span>
                                 </div>
+                                ${rwCodeBreakdownHtml}
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px; margin-bottom: 2px;">
                                     <span style="color: #94a3b8;">Total ROM:</span>
-                                    <span style="font-weight: 500; color: #a78bfa;">${formatBytes(nodeData.romSize)}</span>
+                                    <span style="font-weight: 500; color: #a78bfa;">${formatBytes(nodeData.romSize || 0)}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
                                     <span style="color: #94a3b8;">RAM Share:</span>
@@ -77,27 +123,28 @@ function renderTreemapOption(data, metric = 'rom', groupingMode = 'library') {
                     } else {
                         return `
                             <div style="font-family: Inter, sans-serif; padding: 4px;">
-                                <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${nodeData.name}</div>
+                                <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${safeName}</div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                     <span style="color: #94a3b8;">${groupLabel}</span>
-                                    <span style="font-weight: 500; color: #fff;">${groupVal}</span>
+                                    <span style="font-weight: 500; color: #fff;">${safeGroupVal}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                     <span style="color: #94a3b8;">Total ROM:</span>
-                                    <span style="font-weight: 600; color: ${highlightColor};">${formatBytes(nodeData.romSize)}</span>
+                                    <span style="font-weight: 600; color: ${highlightColor};">${formatBytes(nodeData.romSize || 0)}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px; padding-left: 8px;">
                                     <span style="color: #64748b;">↳ RO Code:</span>
-                                    <span style="font-weight: 500; color: #f8fafc;">${formatBytes(nodeData.roCode)}</span>
+                                    <span style="font-weight: 500; color: #f8fafc;">${formatBytes(nodeData.roCode || 0)}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 6px; padding-left: 8px;">
                                     <span style="color: #64748b;">↳ RO Data:</span>
-                                    <span style="font-weight: 500; color: #f8fafc;">${formatBytes(nodeData.roData)}</span>
+                                    <span style="font-weight: 500; color: #f8fafc;">${formatBytes(nodeData.roData || 0)}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 4px; margin-bottom: 2px;">
-                                    <span style="color: #94a3b8;">RAM (RW Data):</span>
-                                    <span style="font-weight: 500; color: #34d399;">${formatBytes(nodeData.rwData)}</span>
+                                    <span style="color: #94a3b8;">Total RAM (RW):</span>
+                                    <span style="font-weight: 500; color: #34d399;">${formatBytes(ramBytes)}</span>
                                 </div>
+                                ${rwCodeBreakdownHtml}
                                 <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px;">
                                     <span style="color: #94a3b8;">ROM Share:</span>
                                     <span style="font-weight: 600; color: ${shareColor};">${percentText}%</span>
@@ -113,10 +160,10 @@ function renderTreemapOption(data, metric = 'rom', groupingMode = 'library') {
 
                     return `
                         <div style="font-family: Inter, sans-serif; padding: 4px;">
-                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${nodeData.name}</div>
+                            <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">${catLabel} ${safeName}</div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                 <span style="color: #94a3b8;">${totalLabel}</span>
-                                <span style="font-weight: 600; color: ${highlightColor};">${formatBytes(nodeData.value)}</span>
+                                <span style="font-weight: 600; color: ${highlightColor};">${formatBytes(nodeData.value || 0)}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; gap: 20px; font-size: 12px; margin-bottom: 2px;">
                                 <span style="color: #94a3b8;">Items:</span>
@@ -190,7 +237,7 @@ function renderTreemapOption(data, metric = 'rom', groupingMode = 'library') {
             label: {
                 show: true,
                 formatter: function(params) {
-                    return `${params.name}\n${formatBytes(params.value)}`;
+                    return `${params.name || ''}\n${formatBytes(params.value || 0)}`;
                 },
                 fontFamily: 'Inter',
                 fontSize: 11,
@@ -219,7 +266,29 @@ function disposeChartInstances(instancesList, observer) {
 }
 
 /**
+ * Positions the floating RAM grid tooltip inside the viewport.
+ * @param {HTMLElement} tooltipEl
+ * @param {MouseEvent} e
+ */
+function positionRamTooltip(tooltipEl, e) {
+    const pad = 12;
+    let left = e.clientX + 14;
+    let top = e.clientY + 14;
+    const rect = tooltipEl.getBoundingClientRect();
+    if (left + rect.width + pad > window.innerWidth) {
+        left = Math.max(pad, e.clientX - rect.width - 14);
+    }
+    if (top + rect.height + pad > window.innerHeight) {
+        top = Math.max(pad, e.clientY - rect.height - 14);
+    }
+    tooltipEl.style.left = left + "px";
+    tooltipEl.style.top = top + "px";
+}
+
+/**
  * Render RAM Address Placement Grid (0x1000 Page View)
+ * Uses exact per-section RAM intervals from PLACEMENT SUMMARY when available
+ * and positions blocks absolutely by 4KB offset to align strictly with the ruler.
  * @param {Object} parsedData Result from parseMapFile
  */
 function renderRamAddressGrid(parsedData) {
@@ -228,40 +297,75 @@ function renderRamAddressGrid(parsedData) {
 
     rowsContainer.innerHTML = "";
 
-    // 1. Collect all modules with rwData > 0
+    // 1. Collect per-section or fallback RAM segments for all RAM-consuming modules
     const ramModules = [];
+    const ramSegments = [];
+    const seenSegments = new Set();
+
     if (parsedData && parsedData.groups) {
         Object.values(parsedData.groups).forEach(grp => {
             if (grp.modules) {
                 grp.modules.forEach(mod => {
-                    if (mod.rwData > 0) {
-                        ramModules.push(mod);
+                    const modRamBytes = mod.ramSize !== undefined ? mod.ramSize : ((mod.rwData || 0) + (mod.rwCode || 0));
+                    if (modRamBytes <= 0) return;
+
+                    ramModules.push(mod);
+
+                    if (mod.ramSections && mod.ramSections.length > 0) {
+                        mod.ramSections.forEach(sec => {
+                            if (sec.size <= 0 || !Number.isFinite(sec.address)) return;
+                            const dedupKey = mod.isLinkerCreated
+                                ? `linker:${sec.address}:${sec.size}:${sec.section}`
+                                : `${mod.groupFull || mod.group}:${mod.name}:${sec.address}:${sec.size}:${sec.section}`;
+                            if (seenSegments.has(dedupKey)) return;
+                            seenSegments.add(dedupKey);
+
+                            ramSegments.push({
+                                module: mod,
+                                start: sec.address,
+                                end: sec.address + sec.size,
+                                segSize: sec.size,
+                                sectionName: sec.section || "",
+                                kind: sec.kind || ""
+                            });
+                        });
+                    } else if (mod.ramAddress !== undefined && mod.ramAddress !== null && Number.isFinite(mod.ramAddress)) {
+                        ramSegments.push({
+                            module: mod,
+                            start: mod.ramAddress,
+                            end: mod.ramAddress + modRamBytes,
+                            segSize: modRamBytes,
+                            sectionName: "",
+                            kind: ""
+                        });
                     }
                 });
             }
         });
     }
 
-    if (ramModules.length === 0) {
+    if (ramModules.length === 0 || ramSegments.length === 0) {
         rowsContainer.innerHTML = `
             <div class="no-data-overlay" style="padding: 2rem;">
                 <i data-lucide="layers" class="no-data-icon"></i>
-                <p>No RAM (RW Data) modules found in map file.</p>
+                <p>No placed RAM (RW Data / RW Code) sections found in map file.</p>
             </div>
         `;
         if (window.lucide) window.lucide.createIcons();
         return;
     }
 
-    // 2. Identify all 0x1000 page bases containing at least one module
+    // 2. Identify all 0x1000 page bases containing at least one RAM segment
     const activePageBasesSet = new Set();
-    ramModules.forEach(mod => {
-        const start = mod.ramAddress || 0x20000000;
-        const end = start + mod.rwData;
-        const firstPage = Math.floor(start / 0x1000) * 0x1000;
-        const lastPage = Math.floor(Math.max(start, end - 1) / 0x1000) * 0x1000;
-        for (let p = firstPage; p <= lastPage; p += 0x1000) {
+    ramSegments.forEach(seg => {
+        const firstPage = Math.floor(seg.start / 0x1000) * 0x1000;
+        const lastPage = Math.floor(Math.max(seg.start, seg.end - 1) / 0x1000) * 0x1000;
+        // Guard against corrupt multi-hundred-MB spans freezing DOM rendering
+        const maxPagesPerSeg = 4096;
+        let pagesRendered = 0;
+        for (let p = firstPage; p <= lastPage && pagesRendered < maxPagesPerSeg; p += 0x1000) {
             activePageBasesSet.add(p);
+            pagesRendered++;
         }
     });
 
@@ -287,8 +391,6 @@ function renderRamAddressGrid(parsedData) {
         document.body.appendChild(tooltipEl);
     }
 
-    const formatHex = (num) => "0x" + num.toString(16).padStart(8, '0').toUpperCase().replace(/(.{4})(.{4})/, "$1'$2");
-
     // 3. Render active 0x1000 page rows and insert gap dividers for non-contiguous unused ranges
     for (let i = 0; i < activePageBases.length; i++) {
         const pageBase = activePageBases[i];
@@ -303,67 +405,52 @@ function renderRamAddressGrid(parsedData) {
 
                 const gapEl = document.createElement("div");
                 gapEl.className = "ram-grid-gap-row";
-                gapEl.innerHTML = `&ctdot; ${formatHex(gapStart)} &ndash; ${formatHex(gapEnd)} Unused RAM Address Gap (${formatBytes(gapSizeBytes)}) &ctdot;`;
+                gapEl.innerHTML = `&ctdot; ${safeFormatHex(gapStart)} &ndash; ${safeFormatHex(gapEnd)} Unused RAM Address Gap (${formatBytes(gapSizeBytes)}) &ctdot;`;
                 rowsContainer.appendChild(gapEl);
             }
         }
 
         const pageEnd = pageBase + 0x0FFF;
 
-        // Find modules overlapping with this 4KB page
-        const pageModules = [];
-        ramModules.forEach(mod => {
-            const modStart = mod.ramAddress || 0x20000000;
-            const modEnd = modStart + mod.rwData;
-
-            if (modStart <= pageEnd && modEnd > pageBase) {
-                pageModules.push({
-                    module: mod,
-                    modStart,
-                    modEnd,
-                    startOffset: Math.max(0, modStart - pageBase),
-                    endOffset: Math.min(4096, modEnd - pageBase)
+        // Find RAM segments intersecting this 4KB page
+        const pageSegments = [];
+        ramSegments.forEach(seg => {
+            if (seg.start <= pageEnd && seg.end > pageBase) {
+                pageSegments.push({
+                    module: seg.module,
+                    segStart: seg.start,
+                    segEnd: seg.end,
+                    segSize: seg.segSize,
+                    sectionName: seg.sectionName,
+                    kind: seg.kind,
+                    startOffset: Math.max(0, seg.start - pageBase),
+                    endOffset: Math.min(4096, seg.end - pageBase)
                 });
             }
         });
 
-        // Sort overlapping modules by offset
-        pageModules.sort((a, b) => a.startOffset - b.startOffset);
+        pageSegments.sort((a, b) => (a.startOffset - b.startOffset) || (b.endOffset - a.endOffset));
 
-        // Build list of contiguous slots (modules + unused spaces) for 0x0000 to 0x0FFF
-        const slots = [];
-        let currentOffset = 0;
-
-        pageModules.forEach(pm => {
-            if (pm.startOffset > currentOffset) {
-                // Gap / Unused slot
-                slots.push({
+        // Build union-complement unused intervals for [0, 4096) alongside all exact segment blocks
+        const unusedSlots = [];
+        let cursor = 0;
+        pageSegments.forEach(ps => {
+            if (ps.startOffset > cursor) {
+                unusedSlots.push({
                     type: 'unused',
-                    startOffset: currentOffset,
-                    endOffset: pm.startOffset,
-                    bytes: pm.startOffset - currentOffset
+                    startOffset: cursor,
+                    endOffset: ps.startOffset,
+                    bytes: ps.startOffset - cursor
                 });
             }
-
-            slots.push({
-                type: 'module',
-                module: pm.module,
-                modStart: pm.modStart,
-                modEnd: pm.modEnd,
-                startOffset: pm.startOffset,
-                endOffset: pm.endOffset,
-                bytes: pm.endOffset - pm.startOffset
-            });
-
-            currentOffset = Math.max(currentOffset, pm.endOffset);
+            cursor = Math.max(cursor, ps.endOffset);
         });
-
-        if (currentOffset < 4096) {
-            slots.push({
+        if (cursor < 4096) {
+            unusedSlots.push({
                 type: 'unused',
-                startOffset: currentOffset,
+                startOffset: cursor,
                 endOffset: 4096,
-                bytes: 4096 - currentOffset
+                bytes: 4096 - cursor
             });
         }
 
@@ -373,44 +460,63 @@ function renderRamAddressGrid(parsedData) {
 
         const labelEl = document.createElement("div");
         labelEl.className = "ram-grid-row-label";
-        labelEl.textContent = formatHex(pageBase);
+        labelEl.textContent = safeFormatHex(pageBase);
         rowEl.appendChild(labelEl);
 
         const trackEl = document.createElement("div");
         trackEl.className = "ram-grid-track";
 
-        slots.forEach(slot => {
+        const appendSlotBlock = (slot) => {
             const blockEl = document.createElement("div");
+            const leftPct = (slot.startOffset / 4096) * 100;
             const widthPct = ((slot.endOffset - slot.startOffset) / 4096) * 100;
+            blockEl.style.left = `${leftPct}%`;
             blockEl.style.width = `${widthPct}%`;
 
             if (slot.type === 'module') {
                 blockEl.className = "ram-grid-block";
                 const bgColor = groupColorMap[slot.module.group || 'Default'] || '#10b981';
                 blockEl.style.background = bgColor;
-                blockEl.textContent = slot.module.name;
 
-                // Tooltip events
+                const blockLabel = (slot.module.isLinkerCreated && slot.sectionName)
+                    ? slot.sectionName
+                    : slot.module.name;
+                blockEl.textContent = widthPct > 2.5 ? blockLabel : "";
+
                 blockEl.addEventListener("mouseenter", (e) => {
-                    const startAddrHex = formatHex(slot.modStart);
-                    const endAddrHex = formatHex(slot.modEnd - 1);
-                    const percentOfPage = ((slot.bytes / 4096) * 100).toFixed(1);
-                    
+                    const startAddrHex = safeFormatHex(slot.segStart);
+                    const endAddrHex = safeFormatHex(slot.segEnd - 1);
+                    const slotBytes = slot.endOffset - slot.startOffset;
+                    const percentOfPage = ((slotBytes / 4096) * 100).toFixed(1);
+                    const modRamBytes = slot.module.ramSize !== undefined
+                        ? slot.module.ramSize
+                        : ((slot.module.rwData || 0) + (slot.module.rwCode || 0));
+
+                    const safeModName = safeEscapeHtml(slot.module.name);
+                    const safeGroup = safeEscapeHtml(slot.module.group || 'Unknown');
+                    const safeSec = safeEscapeHtml(slot.sectionName || '');
+                    const safeKind = safeEscapeHtml(slot.kind || '');
+
                     tooltipEl.innerHTML = `
                         <div style="font-weight: 700; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #34d399;">
-                            ${slot.module.name}
+                            ${safeModName}${safeSec ? ` <span style="color: #94a3b8; font-weight: 500;">(${safeSec})</span>` : ''}
                         </div>
                         <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
                             <span style="color: #94a3b8;">Group / Library:</span>
-                            <span style="font-weight: 500;">${slot.module.group || 'Unknown'}</span>
+                            <span style="font-weight: 500;">${safeGroup}</span>
+                        </div>
+                        ${safeKind ? `
+                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
+                            <span style="color: #94a3b8;">Section Kind:</span>
+                            <span style="font-weight: 500; color: #cbd5e1;">${safeKind}</span>
+                        </div>` : ''}
+                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
+                            <span style="color: #94a3b8;">Section Range:</span>
+                            <span style="font-family: monospace; color: #6ee7b7;">${startAddrHex} – ${endAddrHex} (${formatBytes(slot.segSize)})</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
-                            <span style="color: #94a3b8;">RAM Address Range:</span>
-                            <span style="font-family: monospace; color: #6ee7b7;">${startAddrHex} – ${endAddrHex}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px;">
-                            <span style="color: #94a3b8;">Module RW Data Size:</span>
-                            <span style="font-weight: 600; color: #fff;">${formatBytes(slot.module.rwData)}</span>
+                            <span style="color: #94a3b8;">Module Total RAM:</span>
+                            <span style="font-weight: 600; color: #fff;">${formatBytes(modRamBytes)}</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; gap: 16px;">
                             <span style="color: #94a3b8;">Page Share (4KB):</span>
@@ -418,14 +524,15 @@ function renderRamAddressGrid(parsedData) {
                         </div>
                     `;
                     tooltipEl.style.display = "block";
+                    positionRamTooltip(tooltipEl, e);
                 });
             } else {
                 blockEl.className = "ram-grid-block unused";
                 blockEl.textContent = widthPct > 8 ? "Unused" : "";
 
                 blockEl.addEventListener("mouseenter", (e) => {
-                    const startAddrHex = formatHex(pageBase + slot.startOffset);
-                    const endAddrHex = formatHex(pageBase + slot.endOffset - 1);
+                    const startAddrHex = safeFormatHex(pageBase + slot.startOffset);
+                    const endAddrHex = safeFormatHex(pageBase + slot.endOffset - 1);
 
                     tooltipEl.innerHTML = `
                         <div style="font-weight: 700; margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; color: #94a3b8;">
@@ -441,12 +548,12 @@ function renderRamAddressGrid(parsedData) {
                         </div>
                     `;
                     tooltipEl.style.display = "block";
+                    positionRamTooltip(tooltipEl, e);
                 });
             }
 
             blockEl.addEventListener("mousemove", (e) => {
-                tooltipEl.style.left = (e.clientX + 14) + "px";
-                tooltipEl.style.top = (e.clientY + 14) + "px";
+                positionRamTooltip(tooltipEl, e);
             });
 
             blockEl.addEventListener("mouseleave", () => {
@@ -454,7 +561,21 @@ function renderRamAddressGrid(parsedData) {
             });
 
             trackEl.appendChild(blockEl);
-        });
+        };
+
+        // Append unused backdrop slots first, then section blocks on top
+        unusedSlots.forEach(appendSlotBlock);
+        pageSegments.forEach(ps => appendSlotBlock({
+            type: 'module',
+            module: ps.module,
+            segStart: ps.segStart,
+            segEnd: ps.segEnd,
+            segSize: ps.segSize,
+            sectionName: ps.sectionName,
+            kind: ps.kind,
+            startOffset: ps.startOffset,
+            endOffset: ps.endOffset
+        }));
 
         rowEl.appendChild(trackEl);
         rowsContainer.appendChild(rowEl);

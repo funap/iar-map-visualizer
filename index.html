@@ -420,7 +420,7 @@
                                 <i data-lucide="layers" style="width: 18px; height: 18px; stroke: var(--color-success);"></i> RAM (RW Data) Treemap Visualizer
                             </h2>
                             <span style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
-                                <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents RAM size (rw data)
+                                <i data-lucide="info" style="width: 12px; height: 12px;"></i> Size represents RAM size (rw data + rw code)
                             </span>
                         </div>
                         
@@ -475,7 +475,7 @@
                             </span>
                         </div>
                         <div style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">
-                            Displays RAM module (.o) address placement. Each row represents a 4KB (0x1000) memory page block, and horizontal blocks depict .o module footprints from 0x0000 to 0x0FFF address offset.
+                            Displays placed RAM sections (.data, .bss, .noinit, .textrw, stack/heap). Each row represents a 4KB (0x1000) memory page block, and horizontal blocks depict exact section footprints from 0x0000 to 0x0FFF address offset.
                         </div>
                     </div>
 
@@ -520,6 +520,7 @@
                                     <th data-sort="group">Library/Group</th>
                                     <th data-sort="name">Module (.o)</th>
                                     <th data-sort="roCode" style="text-align: right;">RO Code (B)</th>
+                                    <th id="th-rw-code" data-sort="rwCode" style="text-align: right;" class="hidden">RW Code (B)</th>
                                     <th data-sort="roData" style="text-align: right;">RO Data (B)</th>
                                     <th data-sort="rwData" style="text-align: right;">RW Data (B)</th>
                                     <th data-sort="romSize" style="text-align: right;" class="sort-active">ROM Size (B)</th>

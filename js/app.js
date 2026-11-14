@@ -86,7 +86,12 @@ function initDOM() {
 
     // File inputs
     if (dropzone) dropzone.addEventListener('click', () => fileInput.click());
-    if (fileInput) fileInput.addEventListener('change', (e) => processFileList(e.target.files));
+    if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+            processFileList(e.target.files);
+            e.target.value = '';
+        });
+    }
     // Load .ewp File Button (Strictly accepts ONLY .ewp files)
     if (uploadEwpBtn) {
         uploadEwpBtn.addEventListener('click', () => {
@@ -163,7 +168,8 @@ function initDOM() {
     
     // Flash Budget Configurator
     const updateBudget = () => {
-        const val = parseFloat(flashBudgetInput.value) || 0;
+        const rawVal = parseFloat(flashBudgetInput.value);
+        const val = Number.isFinite(rawVal) && rawVal > 0 ? rawVal : 0;
         const unit = flashBudgetUnit.value;
         const multiplier = unit === 'KB' ? 1024 : 1024 * 1024;
         targetFlashBytes = val * multiplier;
@@ -206,7 +212,7 @@ function initDOM() {
 }
 
 function setupResizeObserver() {
-    if (typeof ResizeObserver === 'undefined') return;
+    if (typeof ResizeObserver === 'undefined' || typeof echarts === 'undefined') return;
 
     chartResizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
@@ -241,6 +247,7 @@ function setupResizeObserver() {
 }
 
 function initChart() {
+    if (typeof echarts === 'undefined') return;
     setupResizeObserver();
     
     const chartDom = document.getElementById('treemap-chart');
@@ -255,10 +262,11 @@ function initChart() {
 
 // Format bytes to human readable format
 function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes < 1) return `${parseFloat(bytes.toFixed(2))} B`;
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(sizes.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(k))));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
@@ -272,12 +280,13 @@ function processFileList(files) {
     const fileArray = Array.from(files);
     
     const ewpFile = fileArray.find(f => f.name.toLowerCase().endsWith('.ewp'));
-    const mapFile = fileArray.find(f => f.name.toLowerCase().endsWith('.map') || !f.name.toLowerCase().endsWith('.ewp'));
+    const mapFile = fileArray.find(f => f.name.toLowerCase().endsWith('.map'))
+        || fileArray.find(f => !f.name.toLowerCase().endsWith('.ewp'));
 
     // Case 1: Both .ewp and .map dropped/selected simultaneously
     if (ewpFile && mapFile) {
         readEwpFile(ewpFile, () => {
-            readMapFile(mapFile);
+            readMapFile(mapFile, true);
         });
     } 
     // Case 2: Only .ewp file dropped/selected
@@ -286,9 +295,10 @@ function processFileList(files) {
             if (appData) {
                 setGroupingMode('folder');
                 setRamGroupingMode('folder');
+            } else {
+                // Prompt user to select .map file next only when no map is loaded yet
+                promptForMapFileAfterEwp();
             }
-            // Prompt user to select .map file next
-            promptForMapFileAfterEwp();
         });
     } 
     // Case 3: Only .map file dropped/selected
@@ -306,9 +316,10 @@ function promptForMapFileAfterEwp() {
     input.accept = '.map,.MAP';
     input.onchange = (e) => {
         const files = Array.from(e.target.files || []);
-        const mapFile = files.find(f => f.name.toLowerCase().endsWith('.map') || !f.name.toLowerCase().endsWith('.ewp'));
+        const mapFile = files.find(f => f.name.toLowerCase().endsWith('.map'))
+            || files.find(f => !f.name.toLowerCase().endsWith('.ewp'));
         if (mapFile) {
-            readMapFile(mapFile);
+            readMapFile(mapFile, !!ewpData);
         }
     };
     input.click();
@@ -344,7 +355,7 @@ function readEwpFile(file, callback) {
     reader.readAsText(file);
 }
 
-function readMapFile(file) {
+function readMapFile(file, activateFolderMode = false) {
     const reader = new FileReader();
     reader.onload = (e) => {
         try {
@@ -353,6 +364,10 @@ function readMapFile(file) {
             if (groupCount === 0) {
                 alert('Could not find MODULE SUMMARY section or parse data in this map file.');
                 return;
+            }
+            if (activateFolderMode) {
+                syncGroupingModeUI('folder');
+                syncRamGroupingModeUI('folder');
             }
             appData = parsed;
             mapFileName = file.name;
@@ -366,7 +381,7 @@ function readMapFile(file) {
     reader.readAsText(file);
 }
 
-function setGroupingMode(mode) {
+function syncGroupingModeUI(mode) {
     activeGroupingMode = mode;
     const btnNone = document.getElementById('group-mode-none');
     const btnLib = document.getElementById('group-mode-library');
@@ -382,9 +397,12 @@ function setGroupingMode(mode) {
         else if (mode === 'none') colHeader.innerText = 'ROM Area';
         else colHeader.innerText = 'Library/Group';
     }
+}
+
+function setGroupingMode(mode) {
+    syncGroupingModeUI(mode);
     if (appData) {
         drawTreemap();
-        drawRamTreemap();
         renderTable();
     }
 }
@@ -403,7 +421,7 @@ function setRomAreaDisplayMode(mode) {
     }
 }
 
-function setRamGroupingMode(mode) {
+function syncRamGroupingModeUI(mode) {
     activeRamGroupingMode = mode;
     const btnNone = document.getElementById('ram-group-mode-none');
     const btnLib = document.getElementById('ram-group-mode-library');
@@ -412,7 +430,10 @@ function setRamGroupingMode(mode) {
     if (btnNone) btnNone.classList.toggle('active', mode === 'none');
     if (btnLib) btnLib.classList.toggle('active', mode === 'library');
     if (btnFold) btnFold.classList.toggle('active', mode === 'folder');
+}
 
+function setRamGroupingMode(mode) {
+    syncRamGroupingModeUI(mode);
     if (appData) {
         drawRamTreemap();
     }
@@ -524,41 +545,49 @@ function updateKPIs() {
     const roCode = appData.totals.roCode;
     const roData = appData.totals.roData;
     const rwData = appData.totals.rwData;
+    const rwCode = appData.totals.rwCode || 0;
+    const ramSize = appData.totals.ramSize !== undefined ? appData.totals.ramSize : (rwData + rwCode);
     
     document.getElementById('kpi-rom').innerText = formatBytes(romSize);
     document.getElementById('kpi-rom-bytes').innerText = `${formatNumber(romSize)} B`;
     
     document.getElementById('kpi-code').innerText = formatBytes(roCode);
-    const codePercent = romSize > 0 ? ((roCode / romSize) * 100).toFixed(1) : 0;
+    const codePercent = romSize > 0 ? ((roCode / romSize) * 100).toFixed(1) : '0';
     document.getElementById('kpi-code-sub').innerText = `${codePercent}% of ROM`;
     
     document.getElementById('kpi-data').innerText = formatBytes(roData);
-    const dataPercent = romSize > 0 ? ((roData / romSize) * 100).toFixed(1) : 0;
+    const dataPercent = romSize > 0 ? ((roData / romSize) * 100).toFixed(1) : '0';
     document.getElementById('kpi-data-sub').innerText = `${dataPercent}% of ROM`;
     
-    document.getElementById('kpi-ram').innerText = formatBytes(rwData);
-    document.getElementById('kpi-ram-sub').innerText = `${formatNumber(rwData)} bytes used`;
+    document.getElementById('kpi-ram').innerText = formatBytes(ramSize);
+    document.getElementById('kpi-ram-sub').innerText = rwCode > 0
+        ? `${formatNumber(ramSize)} bytes (${formatNumber(rwData)} data + ${formatNumber(rwCode)} code)`
+        : `${formatNumber(ramSize)} bytes used`;
 }
 
 function updateBudgetMeter() {
     if (!appData) return;
     
     const romSize = appData.totals.romSize;
-    const percent = Math.min((romSize / targetFlashBytes) * 100, 100);
+    const validTarget = Number.isFinite(targetFlashBytes) && targetFlashBytes > 0;
+    const rawPercent = validTarget ? (romSize / targetFlashBytes) * 100 : 0;
+    const clampedPercent = validTarget ? Math.max(0, Math.min(rawPercent, 100)) : 0;
     
     const fill = document.getElementById('budget-fill');
     if (fill) {
-        fill.style.width = `${percent}%`;
+        fill.style.width = `${clampedPercent}%`;
         fill.className = 'budget-bar-fill';
-        if (percent > 90) {
-            fill.classList.add('danger');
-        } else if (percent > 75) {
-            fill.classList.add('warning');
+        if (validTarget) {
+            if (rawPercent > 90) {
+                fill.classList.add('danger');
+            } else if (rawPercent > 75) {
+                fill.classList.add('warning');
+            }
         }
     }
     
-    document.getElementById('budget-percent').innerText = `${((romSize / targetFlashBytes) * 100).toFixed(1)}%`;
-    document.getElementById('budget-fraction').innerText = `${formatBytes(romSize)} / ${formatBytes(targetFlashBytes)}`;
+    document.getElementById('budget-percent').innerText = validTarget ? `${rawPercent.toFixed(1)}%` : '—';
+    document.getElementById('budget-fraction').innerText = `${formatBytes(romSize)} / ${validTarget ? formatBytes(targetFlashBytes) : '—'}`;
 }
 
 function getDistinctAreas(metric = 'rom') {
@@ -566,10 +595,12 @@ function getDistinctAreas(metric = 'rom') {
     const areasSet = new Set();
     for (const grpName in appData.groups) {
         appData.groups[grpName].modules.forEach(m => {
-            const mSize = metric === 'ram' ? m.rwData : m.romSize;
+            const ramBytes = m.ramSize !== undefined ? m.ramSize : ((m.rwData || 0) + (m.rwCode || 0));
+            const mSize = metric === 'ram' ? ramBytes : m.romSize;
             if (mSize > 0) {
+                const fallbackRamAddr = (m.ramAddress !== undefined && m.ramAddress !== null) ? m.ramAddress : m.address;
                 const area = metric === 'ram' 
-                    ? (m.ramArea || m.romArea || getRomAreaName(m.ramAddress || m.address))
+                    ? (m.ramArea || m.romArea || getRomAreaName(fallbackRamAddr))
                     : (m.romArea || getRomAreaName(m.address));
                 areasSet.add(area);
             }
@@ -596,6 +627,7 @@ function getChartData(metric = 'rom') {
 
 // Unified renderer for ROM & RAM Treemaps
 function drawTreemapView(metric = 'rom') {
+    if (typeof echarts === 'undefined') return;
     const isRam = metric === 'ram';
     const singleContainer = document.getElementById(isRam ? 'ram-treemap-chart' : 'treemap-chart');
     const multiContainer = document.getElementById(isRam ? 'ram-area-treemaps-container' : 'rom-area-treemaps-container');
@@ -661,13 +693,14 @@ function drawTreemapView(metric = 'rom') {
             card.className = 'rom-area-card';
             card.id = isRam ? `ram-area-card-${index}` : `rom-area-card-${index}`;
 
+            const safeAreaName = typeof escapeHtml === 'function' ? escapeHtml(areaName) : areaName;
             const header = document.createElement('div');
             header.className = 'rom-area-card-header';
             if (isRam) {
                 header.innerHTML = `
                     <div class="rom-area-title" style="color: var(--color-success);">
                         <i data-lucide="layers" style="width: 16px; height: 16px; stroke: var(--color-success);"></i>
-                        ${areaName}
+                        ${safeAreaName}
                     </div>
                     <div class="rom-area-size" style="color: var(--color-success); background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2);">
                         ${formatBytes(areaSum)}
@@ -677,7 +710,7 @@ function drawTreemapView(metric = 'rom') {
                 header.innerHTML = `
                     <div class="rom-area-title">
                         <i data-lucide="cpu" style="width: 16px; height: 16px; stroke: var(--color-primary-light);"></i>
-                        ${areaName}
+                        ${safeAreaName}
                     </div>
                     <div class="rom-area-size">${formatBytes(areaSum)}</div>
                 `;
@@ -727,21 +760,11 @@ function getFlatModules() {
     if (!appData) return [];
     const list = [];
     const romSizeTotal = appData.totals.romSize;
-    const fileMap = ewpData ? ewpData.fileMap : null;
+    const activeConfig = inferActiveEwpConfig(ewpData, appData);
     
     for (const groupName in appData.groups) {
         appData.groups[groupName].modules.forEach(m => {
-            const stem = m.name.replace(/\.o$/i, "").replace(/\.[^/.]+$/, "").toLowerCase();
-            let folderPath = "";
-            if (fileMap && fileMap.has(stem)) {
-                folderPath = fileMap.get(stem)[0];
-            } else {
-                if (m.group && m.group !== "Obj" && m.group !== "Unknown Group") {
-                    folderPath = `Libraries & System/${m.group}`;
-                } else {
-                    folderPath = "Unassigned Modules";
-                }
-            }
+            const folderPath = resolveModuleFolderPath(m, ewpData, appData, activeConfig);
             
             let displayGroup = m.group;
             if (activeGroupingMode === 'folder') {
@@ -752,6 +775,8 @@ function getFlatModules() {
 
             list.push({
                 ...m,
+                rwCode: m.rwCode || 0,
+                ramSize: m.ramSize !== undefined ? m.ramSize : ((m.rwData || 0) + (m.rwCode || 0)),
                 folderPath: folderPath,
                 displayGroup: displayGroup,
                 romPercentage: romSizeTotal > 0 ? (m.romSize / romSizeTotal) * 100 : 0
@@ -781,6 +806,17 @@ function renderTable() {
     const tbody = document.getElementById('table-body');
     if (!tbody) return;
     tbody.innerHTML = '';
+
+    const hasRwCode = (appData.totals.rwCode || 0) > 0;
+    const rwCodeTh = document.getElementById('th-rw-code');
+    if (rwCodeTh) {
+        rwCodeTh.classList.toggle('hidden', !hasRwCode);
+    }
+    if (!hasRwCode && activeSortColumn === 'rwCode') {
+        activeSortColumn = 'romSize';
+        activeSortDesc = true;
+        updateSortHeaders();
+    }
     
     let modules = getFlatModules();
     
@@ -790,7 +826,8 @@ function renderTable() {
             m.name.toLowerCase().includes(searchQuery) || 
             m.group.toLowerCase().includes(searchQuery) ||
             m.folderPath.toLowerCase().includes(searchQuery) ||
-            (m.romArea && m.romArea.toLowerCase().includes(searchQuery))
+            (m.romArea && m.romArea.toLowerCase().includes(searchQuery)) ||
+            (m.ramArea && m.ramArea.toLowerCase().includes(searchQuery))
         );
     }
     
@@ -799,9 +836,12 @@ function renderTable() {
         let valA = activeSortColumn === 'group' ? a.displayGroup : a[activeSortColumn];
         let valB = activeSortColumn === 'group' ? b.displayGroup : b[activeSortColumn];
         
-        if (typeof valA === 'string') {
-            valA = valA.toLowerCase();
-            valB = (valB || '').toLowerCase();
+        if (typeof valA === 'string' || typeof valB === 'string') {
+            valA = String(valA || '').toLowerCase();
+            valB = String(valB || '').toLowerCase();
+        } else {
+            valA = valA !== undefined && valA !== null ? valA : 0;
+            valB = valB !== undefined && valB !== null ? valB : 0;
         }
         
         if (valA < valB) return activeSortDesc ? 1 : -1;
@@ -810,18 +850,21 @@ function renderTable() {
     });
     
     // Render rows
+    const esc = typeof escapeHtml === 'function' ? escapeHtml : (v) => String(v || '');
     modules.forEach(m => {
         const tr = document.createElement('tr');
-        const badgeText = m.displayGroup;
+        const safeBadge = esc(m.displayGroup);
+        const safeName = esc(m.name);
         
         tr.addEventListener('click', () => {
-            zoomToModuleInChart(m.group, m.folderPath, m.name, m.romArea);
+            zoomToModuleInChart(m.group, m.folderPath, m.name, m.romArea, m.ramArea, m.romSize, m.ramSize);
         });
         
         tr.innerHTML = `
-            <td><span class="badge badge-library" title="${badgeText}">${badgeText}</span></td>
-            <td class="col-mono" style="font-weight: 500;">${m.name}</td>
+            <td><span class="badge badge-library" title="${safeBadge}">${safeBadge}</span></td>
+            <td class="col-mono" style="font-weight: 500;">${safeName}</td>
             <td class="col-mono" align="right">${formatNumber(m.roCode)}</td>
+            <td class="col-mono${hasRwCode ? '' : ' hidden'}" align="right">${formatNumber(m.rwCode || 0)}</td>
             <td class="col-mono" align="right">${formatNumber(m.roData)}</td>
             <td class="col-mono" align="right">${formatNumber(m.rwData)}</td>
             <td class="col-mono" align="right" style="font-weight: 600; color: #a78bfa;">${formatNumber(m.romSize)}</td>
@@ -832,68 +875,83 @@ function renderTable() {
     });
 }
 
+/**
+ * Resolves the ECharts node id to zoom onto for a given grouping mode and module metadata.
+ * @param {string} mode
+ * @param {string} groupName
+ * @param {string} folderPath
+ * @param {string} moduleName
+ * @returns {string}
+ */
+function getZoomTargetNodeId(mode, groupName, folderPath, moduleName) {
+    if (mode === 'folder' && folderPath) {
+        return folderPath;
+    }
+    if (mode === 'none') {
+        return `${groupName}::${moduleName}`;
+    }
+    return groupName;
+}
+
 // Zoom treemap programmatically to a specific library, folder, or module
-function zoomToModuleInChart(groupName, folderPath, moduleName, romArea) {
-    let targetNodeId = groupName;
-    if (activeGroupingMode === 'folder' && folderPath) {
-        targetNodeId = folderPath.split('/')[0];
-    } else if (activeGroupingMode === 'none') {
-        targetNodeId = moduleName;
+function zoomToModuleInChart(groupName, folderPath, moduleName, romArea, ramArea, romSize, ramSize) {
+    const hasRom = (romSize === undefined || romSize > 0);
+    const hasRam = (ramSize === undefined || ramSize > 0);
+    let primaryScrollEl = null;
+
+    if (hasRom) {
+        const romTargetNodeId = getZoomTargetNodeId(activeGroupingMode, groupName, folderPath, moduleName);
+        if (activeRomAreaDisplayMode === 'single') {
+            if (chartInstance) {
+                chartInstance.dispatchAction({
+                    type: 'treemapZoomToNode',
+                    targetNodeId: romTargetNodeId
+                });
+            }
+            primaryScrollEl = document.getElementById('treemap-chart');
+        } else {
+            const targetRomArea = romArea || (appData ? getRomAreaName() : '');
+            const areaMatch = perAreaChartInstances.find(item => item.areaName === targetRomArea);
+            if (areaMatch) {
+                areaMatch.instance.dispatchAction({
+                    type: 'treemapZoomToNode',
+                    targetNodeId: romTargetNodeId
+                });
+                if (areaMatch.cardDom) {
+                    primaryScrollEl = areaMatch.cardDom;
+                }
+            }
+        }
     }
 
-    if (activeRomAreaDisplayMode === 'single') {
-        if (chartInstance) {
-            chartInstance.dispatchAction({
-                type: 'treemapZoomToNode',
-                targetNodeId: targetNodeId
-            });
-        }
-        const singleDom = document.getElementById('treemap-chart');
-        if (singleDom) singleDom.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-        const targetArea = romArea || (appData ? getRomAreaName() : '');
-        const areaMatch = perAreaChartInstances.find(item => item.areaName === targetArea);
-        if (areaMatch) {
-            areaMatch.instance.dispatchAction({
-                type: 'treemapZoomToNode',
-                targetNodeId: targetNodeId
-            });
-            if (areaMatch.cardDom) {
-                areaMatch.cardDom.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (hasRam) {
+        const ramTargetNodeId = getZoomTargetNodeId(activeRamGroupingMode, groupName, folderPath, moduleName);
+        if (activeRamAreaDisplayMode === 'single') {
+            if (ramChartInstance) {
+                ramChartInstance.dispatchAction({
+                    type: 'treemapZoomToNode',
+                    targetNodeId: ramTargetNodeId
+                });
+            }
+            if (!primaryScrollEl) {
+                primaryScrollEl = document.getElementById('ram-treemap-chart');
+            }
+        } else {
+            const targetRamArea = ramArea || romArea || (appData ? getRomAreaName(0x20000000) : '');
+            const areaMatch = perRamAreaChartInstances.find(item => item.areaName === targetRamArea);
+            if (areaMatch) {
+                areaMatch.instance.dispatchAction({
+                    type: 'treemapZoomToNode',
+                    targetNodeId: ramTargetNodeId
+                });
+                if (!primaryScrollEl && areaMatch.cardDom) {
+                    primaryScrollEl = areaMatch.cardDom;
+                }
             }
         }
     }
 
-    if (activeRamAreaDisplayMode === 'single') {
-        if (ramChartInstance) {
-            let ramTargetNodeId = groupName;
-            if (activeRamGroupingMode === 'folder' && folderPath) {
-                ramTargetNodeId = folderPath.split('/')[0];
-            } else if (activeRamGroupingMode === 'none') {
-                ramTargetNodeId = moduleName;
-            }
-            ramChartInstance.dispatchAction({
-                type: 'treemapZoomToNode',
-                targetNodeId: ramTargetNodeId
-            });
-        }
-    } else {
-        const targetArea = romArea || (appData ? getRomAreaName() : '');
-        const areaMatch = perRamAreaChartInstances.find(item => item.areaName === targetArea);
-        if (areaMatch) {
-            let ramTargetNodeId = groupName;
-            if (activeRamGroupingMode === 'folder' && folderPath) {
-                ramTargetNodeId = folderPath.split('/')[0];
-            } else if (activeRamGroupingMode === 'none') {
-                ramTargetNodeId = moduleName;
-            }
-            areaMatch.instance.dispatchAction({
-                type: 'treemapZoomToNode',
-                targetNodeId: ramTargetNodeId
-            });
-            if (areaMatch.cardDom) {
-                areaMatch.cardDom.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        }
+    if (primaryScrollEl) {
+        primaryScrollEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 }
